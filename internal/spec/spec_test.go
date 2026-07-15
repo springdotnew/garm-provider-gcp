@@ -35,6 +35,8 @@ func TestJsonSchemaValidation(t *testing.T) {
 		{
 			name: "Full specs",
 			input: json.RawMessage(`{
+				"provisioning_model": "SPOT",
+				"fallback_to_standard": true,
 				"display_device": true,
 				"disksize": 127,
 				"disktype": "pd-ssd",
@@ -759,6 +761,15 @@ func TestExtraSpecsValidate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "regional_fallback_to_standard requires regional_provisioning_model SPOT",
 		},
+		{
+			name: "Invalid provisioning model", specs: &extraSpecs{ProvisioningModel: "PREEMPTIBLE"},
+			wantErr: true, errMsg: "provisioning_model must be STANDARD or SPOT",
+		},
+		{
+			name:    "Fallback requires Spot",
+			specs:   &extraSpecs{ProvisioningModel: "STANDARD", FallbackToStandard: true},
+			wantErr: true, errMsg: "fallback_to_standard requires provisioning_model SPOT",
+		},
 	}
 
 	// Generate 62 keys for the "Too many custom labels" test
@@ -770,6 +781,9 @@ func TestExtraSpecsValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.specs.Validate()
 			assert.Equal(t, tt.wantErr, err != nil, "expected error: %v, got: %v", tt.wantErr, err)
+			if tt.errMsg != "" {
+				assert.ErrorContains(t, err, tt.errMsg)
+			}
 		})
 	}
 }
