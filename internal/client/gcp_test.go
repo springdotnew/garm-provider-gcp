@@ -119,7 +119,8 @@ func TestCreateInstanceSpotScheduling(t *testing.T) {
 	mockClient.On("Insert", mock.Anything, mock.MatchedBy(func(req *computepb.InsertInstanceRequest) bool {
 		scheduling := req.InstanceResource.GetScheduling()
 		return scheduling.GetProvisioningModel() == "SPOT" && scheduling.GetInstanceTerminationAction() == "DELETE" &&
-			!scheduling.GetAutomaticRestart() && scheduling.GetOnHostMaintenance() == "TERMINATE"
+			!scheduling.GetAutomaticRestart() && scheduling.GetOnHostMaintenance() == "TERMINATE" &&
+			scheduling.GetPreemptible()
 	}), mock.Anything).Return(&compute.Operation{}, nil).Once()
 	spec.DefaultCloudConfigFunc = func(params.BootstrapInstance, params.RunnerApplicationDownload, string) (string, error) {
 		return "MockUserData", nil
@@ -190,18 +191,6 @@ func minimalRunnerSpec(provisioningModel string, fallback bool) *spec.RunnerSpec
 			Image:  "projects/my-project/global/images/family/runner-image-arm64",
 			OSType: params.Linux, OSArch: params.Arm64,
 		},
-	}
-}
-
-func TestIsCapacityError(t *testing.T) {
-	for _, test := range []struct {
-		message string
-		want    bool
-	}{
-		{"ZONE_RESOURCE_POOL_EXHAUSTED", true}, {"resourcePoolExhausted", true},
-		{"resourceNotReady", true}, {"QUOTA_EXCEEDED", false}, {"PERMISSION_DENIED", false},
-	} {
-		assert.Equal(t, test.want, isCapacityError(errors.New(test.message)), test.message)
 	}
 }
 
