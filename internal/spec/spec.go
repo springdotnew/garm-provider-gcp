@@ -154,6 +154,9 @@ func (e *extraSpecs) Validate() error {
 			return fmt.Errorf("regional_provisioning_model must be STANDARD or SPOT")
 		}
 	}
+	if e.RegionalFallbackToStandard && e.RegionalProvisioningModel != "SPOT" {
+		return fmt.Errorf("regional_fallback_to_standard requires regional_provisioning_model SPOT")
+	}
 	return nil
 }
 
@@ -178,9 +181,10 @@ type extraSpecs struct {
 	// CMEK (Customer-Managed Encryption Key) for boot disk
 	BootDiskKmsKeyName string `json:"boot_disk_kms_key_name,omitempty" jsonschema:"description=The Cloud KMS key to use for boot disk encryption. Format: projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{key}"`
 	// Regional placement options
-	RegionalPlacement         *RegionalPlacement   `json:"regional_placement,omitempty" jsonschema:"description=Optional regional placement using the pool's existing flavor and image."`
-	InstanceFlexibility       *InstanceFlexibility `json:"instance_flexibility,omitempty" jsonschema:"description=Optional ranked machine types for regional placement."`
-	RegionalProvisioningModel string               `json:"regional_provisioning_model,omitempty" jsonschema:"description=Provisioning model for regional placement. Supported values are STANDARD and SPOT."`
+	RegionalPlacement          *RegionalPlacement   `json:"regional_placement,omitempty" jsonschema:"description=Optional regional placement using the pool's existing flavor and image."`
+	InstanceFlexibility        *InstanceFlexibility `json:"instance_flexibility,omitempty" jsonschema:"description=Optional ranked machine types for regional placement."`
+	RegionalProvisioningModel  string               `json:"regional_provisioning_model,omitempty" jsonschema:"description=Provisioning model for regional placement. Supported values are STANDARD and SPOT."`
+	RegionalFallbackToStandard bool                 `json:"regional_fallback_to_standard,omitempty" jsonschema:"description=Fall back to the STANDARD provisioning model after a regional SPOT capacity failure."`
 	// The Cloudconfig struct from common package
 	cloudconfig.CloudConfigSpec
 }
@@ -247,9 +251,10 @@ type RunnerSpec struct {
 	// CMEK (Customer-Managed Encryption Key) for boot disk
 	BootDiskKmsKeyName string
 	// Regional placement options
-	RegionalPlacement         *RegionalPlacement
-	InstanceFlexibility       *InstanceFlexibility
-	RegionalProvisioningModel string
+	RegionalPlacement          *RegionalPlacement
+	InstanceFlexibility        *InstanceFlexibility
+	RegionalProvisioningModel  string
+	RegionalFallbackToStandard bool
 }
 
 func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
@@ -314,6 +319,9 @@ func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
 	}
 	if extraSpecs.RegionalProvisioningModel != "" {
 		r.RegionalProvisioningModel = extraSpecs.RegionalProvisioningModel
+	}
+	if extraSpecs.RegionalFallbackToStandard {
+		r.RegionalFallbackToStandard = extraSpecs.RegionalFallbackToStandard
 	}
 }
 

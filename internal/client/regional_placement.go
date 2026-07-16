@@ -27,6 +27,7 @@ import (
 	"github.com/cloudbase/garm-provider-gcp/internal/util"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2/apierror"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/proto"
 )
@@ -54,6 +55,21 @@ func (g *GcpCli) createRegionalInstance(ctx context.Context, runnerSpec *spec.Ru
 		return existing, nil
 	}
 
+	created, err := g.attemptRegionalCreate(ctx, runnerSpec, inst)
+	if err == nil {
+		return created, nil
+	}
+	if !runnerSpec.RegionalFallbackToStandard || runnerSpec.RegionalProvisioningModel != "SPOT" || !isRegionalCapacityError(err) {
+		return nil, err
+	}
+	// Spot capacity ran out in all allowed zones. Retry the same create with
+	// the STANDARD provisioning model.
+	standardSpec := *runnerSpec
+	standardSpec.RegionalProvisioningModel = "STANDARD"
+	return g.attemptRegionalCreate(ctx, &standardSpec, inst)
+}
+
+func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.RunnerSpec, inst *computepb.Instance) (*computepb.Instance, error) {
 	req := buildRegionalInsertRequest(g.cfg.ProjectId, runnerSpec, inst)
 	op, err := g.regionClient.BulkInsert(ctx, req)
 	if err == nil {
@@ -61,7 +77,19 @@ func (g *GcpCli) createRegionalInstance(ctx context.Context, runnerSpec *spec.Ru
 	}
 	if err != nil {
 		if !isAmbiguousCreateError(err) {
-			return nil, fmt.Errorf("failed to create regional instance: %w", err)
+			// The instance may exist despite the error. Return it if it does,
+			// so a fallback retry cannot create a duplicate.
+			created, lookupErr := g.findInstanceInZones(ctx, inst.GetName(), runnerSpec.RegionalPlacement.Zones)
+			if lookupErr != nil {
+				return nil, fmt.Errorf("failed to reconcile regional create error %w: %w", err, lookupErr)
+			}
+			if created == nil {
+				return nil, fmt.Errorf("failed to create regional instance: %w", err)
+			}
+			if identityErr := validateRegionalInstanceIdentity(created, inst); identityErr != nil {
+				return nil, fmt.Errorf("regional create returned a mismatched instance: %w", identityErr)
+			}
+			return created, nil
 		}
 		// The request may have succeeded on the GCP side. Look for the instance
 		// before reporting the error, so we don't leak a running instance.
@@ -301,6 +329,37 @@ func isAmbiguousCreateError(err error) bool {
 	for _, reason := range []string{"unexpected eof", "connection reset", "transport is closing", "client connection lost"} {
 		if strings.Contains(message, reason) {
 			return true
+		}
+	}
+	return false
+}
+
+func isRegionalCapacityError(err error) bool {
+	if err == nil || isAmbiguousCreateError(err) {
+		return false
+	}
+	var reasons []string
+	var asApiErr *apierror.APIError
+	if errors.As(err, &asApiErr) && asApiErr.Reason() != "" {
+		reasons = append(reasons, asApiErr.Reason())
+	}
+	var asGoogleErr *googleapi.Error
+	if errors.As(err, &asGoogleErr) {
+		for _, item := range asGoogleErr.Errors {
+			if item.Reason != "" {
+				reasons = append(reasons, item.Reason)
+			}
+		}
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, err.Error())
+	}
+	for _, reason := range reasons {
+		normalized := strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToLower(reason))
+		for _, capacityReason := range []string{"zoneresourcepoolexhausted", "resourcepoolexhausted", "resourcenotready"} {
+			if strings.Contains(normalized, capacityReason) {
+				return true
+			}
 		}
 	}
 	return false

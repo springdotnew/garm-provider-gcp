@@ -212,6 +212,17 @@ func TestJsonSchemaValidation(t *testing.T) {
 			errString: "",
 		},
 		{
+			name: "Specs with regional_placement and regional_fallback_to_standard",
+			input: json.RawMessage(`{
+				"regional_placement": {
+					"zones": ["us-central1-a", "us-central1-b"]
+				},
+				"regional_provisioning_model": "SPOT",
+				"regional_fallback_to_standard": true
+			}`),
+			errString: "",
+		},
+		{
 			name: "Invalid input for display_device - wrong data type",
 			input: json.RawMessage(`{
 				"display_device": "true"
@@ -322,6 +333,13 @@ func TestJsonSchemaValidation(t *testing.T) {
 				"regional_provisioning_model": true
 			}`),
 			errString: "schema validation failed: [regional_provisioning_model: Invalid type. Expected: string, given: boolean]",
+		},
+		{
+			name: "Invalid input for regional_fallback_to_standard - wrong data type",
+			input: json.RawMessage(`{
+				"regional_fallback_to_standard": "yes"
+			}`),
+			errString: "schema validation failed: [regional_fallback_to_standard: Invalid type. Expected: boolean, given: string]",
 		},
 		{
 			name: "Invalid input - additional property",
@@ -721,6 +739,25 @@ func TestExtraSpecsValidate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "regional_provisioning_model must be STANDARD or SPOT",
+		},
+		{
+			name: "Valid regional fallback to standard",
+			specs: &extraSpecs{
+				RegionalPlacement:          &RegionalPlacement{Zones: []string{"us-central1-a"}},
+				RegionalProvisioningModel:  "SPOT",
+				RegionalFallbackToStandard: true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "Regional fallback without spot provisioning",
+			specs: &extraSpecs{
+				RegionalPlacement:          &RegionalPlacement{Zones: []string{"us-central1-a"}},
+				RegionalProvisioningModel:  "STANDARD",
+				RegionalFallbackToStandard: true,
+			},
+			wantErr: true,
+			errMsg:  "regional_fallback_to_standard requires regional_provisioning_model SPOT",
 		},
 	}
 

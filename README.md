@@ -223,6 +223,10 @@ To this end, this provider supports the following extra specs schema:
         "regional_provisioning_model": {
             "type": "string",
             "description": "Provisioning model for regional placement. Supported values are STANDARD and SPOT."
+        },
+        "regional_fallback_to_standard": {
+            "type": "boolean",
+            "description": "Fall back to the STANDARD provisioning model after a regional SPOT capacity failure."
         }
     },
     "additionalProperties": false
@@ -258,6 +262,8 @@ An example of extra specs json would look like this:
 **NOTE**: The `instance_flexibility` extra spec ranks alternative machine types for a `regional_placement` pool, in descending preference order. Compute Engine picks the best candidate with available capacity, so the pool flavor is ignored while the policy is set.
 
 **NOTE**: The `regional_provisioning_model` extra spec sets the [provisioning model](https://cloud.google.com/compute/docs/instances/spot) for a `regional_placement` pool. Setting it to `SPOT` creates spot runners, which cost less but can be preempted at any time. Preempted runners are terminated and deleted, and GARM replaces them as needed.
+
+**NOTE**: The `regional_fallback_to_standard` extra spec retries a failed `SPOT` create with the `STANDARD` provisioning model, when the failure was caused by spot capacity running out in all allowed zones. It requires `regional_provisioning_model` to be `SPOT`.
 
 To set it on an existing pool, simply run:
 

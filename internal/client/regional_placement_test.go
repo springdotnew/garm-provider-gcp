@@ -16,13 +16,21 @@
 package client
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"github.com/cloudbase/garm-provider-common/params"
+	"github.com/cloudbase/garm-provider-gcp/config"
 	"github.com/cloudbase/garm-provider-gcp/internal/spec"
 	"github.com/cloudbase/garm-provider-gcp/internal/util"
+	"github.com/googleapis/gax-go/v2"
+	"github.com/googleapis/gax-go/v2/apierror"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -190,4 +198,110 @@ func TestBuildRegionalInsertRequestWithSpotProvisioning(t *testing.T) {
 	require.False(t, scheduling.GetAutomaticRestart())
 	require.Equal(t, "DELETE", scheduling.GetInstanceTerminationAction())
 	require.Equal(t, "TERMINATE", scheduling.GetOnHostMaintenance())
+}
+
+func TestCreateRegionalInstanceSpotFallback(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(MockGcpClient)
+	mockRegionalClient := new(MockRegionalGcpClient)
+	WaitOp = func(op *compute.Operation, ctx context.Context, opts ...gax.CallOption) error {
+		return nil
+	}
+	gcpCli := &GcpCli{
+		cfg: &config.Config{
+			ProjectId:               "my-project",
+			EnableRegionalPlacement: true,
+		},
+		client:       mockClient,
+		regionClient: mockRegionalClient,
+	}
+
+	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).Return((*computepb.Instance)(nil), notFound).Twice()
+	created := &computepb.Instance{
+		Name: proto.String("garm-instance"),
+		Zone: proto.String("zones/us-central1-a"),
+		Labels: map[string]string{
+			"garmpoolid":                "garm-pool",
+			util.RegionalPlacementLabel: "true",
+		},
+	}
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).Return(created, nil).Once()
+	capacityErr := &googleapi.Error{
+		Code:   503,
+		Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}},
+	}
+	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(req *computepb.BulkInsertRegionInstanceRequest) bool {
+		return req.BulkInsertInstanceResourceResource.InstanceProperties.Scheduling.GetProvisioningModel() == "SPOT"
+	}), mock.Anything).Return((*compute.Operation)(nil), capacityErr).Once()
+	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(req *computepb.BulkInsertRegionInstanceRequest) bool {
+		return req.BulkInsertInstanceResourceResource.InstanceProperties.Scheduling == nil
+	}), mock.Anything).Return(&compute.Operation{}, nil).Once()
+
+	runnerSpec := &spec.RunnerSpec{
+		RegionalPlacement: &spec.RegionalPlacement{
+			Zones: []string{"us-central1-a"},
+		},
+		RegionalProvisioningModel:  "SPOT",
+		RegionalFallbackToStandard: true,
+		BootstrapParams: params.BootstrapInstance{
+			Name:   "garm-instance",
+			Flavor: "n1-standard-1",
+		},
+	}
+	instance := &computepb.Instance{
+		Name: proto.String("garm-instance"),
+		Labels: map[string]string{
+			"garmpoolid": "garm-pool",
+		},
+	}
+
+	result, err := gcpCli.createRegionalInstance(ctx, runnerSpec, instance)
+	require.NoError(t, err)
+	require.Equal(t, created, result)
+	mockClient.AssertExpectations(t)
+	mockRegionalClient.AssertExpectations(t)
+}
+
+func TestIsRegionalCapacityError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "NilError",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name: "CapacityReason",
+			err: &googleapi.Error{
+				Code:   503,
+				Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}},
+			},
+			expected: true,
+		},
+		{
+			name:     "CapacityMessage",
+			err:      fmt.Errorf("failed to create regional instance: ZONE_RESOURCE_POOL_EXHAUSTED"),
+			expected: true,
+		},
+		{
+			name:     "UnrelatedError",
+			err:      fmt.Errorf("permission denied"),
+			expected: false,
+		},
+		{
+			name:     "AmbiguousError",
+			err:      fmt.Errorf("unexpected EOF"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, isRegionalCapacityError(tt.err))
+		})
+	}
 }
