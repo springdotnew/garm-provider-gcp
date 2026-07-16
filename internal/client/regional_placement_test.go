@@ -353,6 +353,21 @@ func TestIsRegionalCapacityError(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "PoolExhaustedMessage",
+			err:      fmt.Errorf("resourcePoolExhausted"),
+			expected: true,
+		},
+		{
+			name:     "ResourceNotReadyMessage",
+			err:      fmt.Errorf("resourceNotReady"),
+			expected: true,
+		},
+		{
+			name:     "QuotaError",
+			err:      fmt.Errorf("QUOTA_EXCEEDED"),
+			expected: false,
+		},
+		{
 			name:     "UnrelatedError",
 			err:      fmt.Errorf("permission denied"),
 			expected: false,

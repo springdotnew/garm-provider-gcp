@@ -287,7 +287,7 @@ An example of extra specs json would look like this:
 
 **NOTE**: The `regional_fallback_to_standard` extra spec retries a failed `SPOT` create with the `STANDARD` provisioning model, when the failure was caused by spot capacity running out in all allowed zones. It requires `regional_provisioning_model` to be `SPOT`.
 
-**NOTE**: Existing zonal pools can use `provisioning_model: "SPOT"` with `fallback_to_standard: true`. That fallback is also restricted to recognized capacity errors; quota, permission, and invalid configuration errors are returned without a STANDARD retry. These legacy zonal fields are separate from the `regional_*` fields above.
+**NOTE**: Existing zonal pools can use `provisioning_model: "SPOT"` with `fallback_to_standard: true`. That fallback is also restricted to recognized capacity errors; quota, permission, and invalid configuration errors are returned without a STANDARD retry. These legacy zonal fields are separate from the `regional_*` fields above and cannot be combined with `regional_placement` — regional pools must use `regional_provisioning_model` and `regional_fallback_to_standard`.
 
 To set it on an existing pool, simply run:
 

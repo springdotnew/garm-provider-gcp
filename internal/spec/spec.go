@@ -98,6 +98,9 @@ func (e *extraSpecs) Validate() error {
 	if e.FallbackToStandard && e.ProvisioningModel != "SPOT" {
 		return fmt.Errorf("fallback_to_standard requires provisioning_model SPOT")
 	}
+	if e.ProvisioningModel != "" && e.RegionalPlacement != nil {
+		return fmt.Errorf("provisioning_model cannot be combined with regional_placement, use regional_provisioning_model")
+	}
 	if len(e.CustomLabels) > 61 {
 		return fmt.Errorf("custom labels cannot exceed 61 items")
 	}

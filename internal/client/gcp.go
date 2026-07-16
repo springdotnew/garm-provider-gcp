@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
@@ -228,7 +227,7 @@ func (g *GcpCli) CreateInstance(ctx context.Context, spec *spec.RunnerSpec) (*co
 	}
 
 	err = g.insertInstance(ctx, insertReq)
-	if err != nil && spec.ProvisioningModel == "SPOT" && spec.FallbackToStandard && isCapacityError(err) {
+	if err != nil && spec.ProvisioningModel == "SPOT" && spec.FallbackToStandard && isRegionalCapacityError(err) {
 		// Keep fallback deliberately narrow: quota, auth, invalid configuration,
 		// and every other failure must remain visible instead of silently buying
 		// more expensive compute.
@@ -247,6 +246,7 @@ func setSpotScheduling(inst *computepb.Instance) {
 		AutomaticRestart:          proto.Bool(false),
 		InstanceTerminationAction: proto.String("DELETE"),
 		OnHostMaintenance:         proto.String("TERMINATE"),
+		Preemptible:               proto.Bool(true),
 		ProvisioningModel:         proto.String("SPOT"),
 	}
 }
@@ -260,25 +260,6 @@ func (g *GcpCli) insertInstance(ctx context.Context, req *computepb.InsertInstan
 		return fmt.Errorf("failed to wait for operation: %w", err)
 	}
 	return nil
-}
-
-func isCapacityError(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	capacityReasons := []string{
-		"zone_resource_pool_exhausted",
-		"resource_pool_exhausted",
-		"resourcepoolexhausted",
-		"resourcenotready",
-	}
-	for _, reason := range capacityReasons {
-		if strings.Contains(message, reason) {
-			return true
-		}
-	}
-	return false
 }
 
 func (g *GcpCli) GetInstance(ctx context.Context, instanceName string) (*computepb.Instance, error) {

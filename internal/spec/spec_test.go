@@ -770,6 +770,15 @@ func TestExtraSpecsValidate(t *testing.T) {
 			specs:   &extraSpecs{ProvisioningModel: "STANDARD", FallbackToStandard: true},
 			wantErr: true, errMsg: "fallback_to_standard requires provisioning_model SPOT",
 		},
+		{
+			name: "Zonal provisioning model combined with regional placement",
+			specs: &extraSpecs{
+				ProvisioningModel:  "SPOT",
+				FallbackToStandard: true,
+				RegionalPlacement:  &RegionalPlacement{Zones: []string{"us-central1-a"}},
+			},
+			wantErr: true, errMsg: "provisioning_model cannot be combined with regional_placement",
+		},
 	}
 
 	// Generate 62 keys for the "Too many custom labels" test
