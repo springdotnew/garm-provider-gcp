@@ -118,3 +118,43 @@ func TestSplitRegionalProviderID(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildRegionalInsertRequestWithRankedMachineTypes(t *testing.T) {
+	runnerSpec := &spec.RunnerSpec{
+		RegionalPlacement: &spec.RegionalPlacement{
+			Zones: []string{"us-central1-a", "us-central1-b"},
+		},
+		InstanceFlexibility: &spec.InstanceFlexibility{
+			Candidates: []spec.MachineTypeCandidate{
+				{MachineType: "n2d-standard-4"},
+				{MachineType: "n2-standard-4"},
+			},
+		},
+		BootstrapParams: params.BootstrapInstance{
+			Name:   "garm-instance",
+			Flavor: "n1-standard-1",
+		},
+	}
+	instance := &computepb.Instance{
+		Name: proto.String("garm-instance"),
+		Labels: map[string]string{
+			"garmpoolid": "garm-pool",
+		},
+		Disks: []*computepb.AttachedDisk{
+			{
+				Boot: proto.Bool(true),
+			},
+		},
+	}
+	markRegionalInstance(instance)
+
+	req := buildRegionalInsertRequest("my-project", runnerSpec, instance)
+	resource := req.BulkInsertInstanceResourceResource
+	require.Nil(t, resource.InstanceProperties.MachineType)
+	require.Len(t, resource.InstanceFlexibilityPolicy.InstanceSelections, 2)
+	require.EqualValues(t, 0, resource.InstanceFlexibilityPolicy.InstanceSelections["selection-000"].GetRank())
+	require.Equal(t, []string{"n2d-standard-4"}, resource.InstanceFlexibilityPolicy.InstanceSelections["selection-000"].MachineTypes)
+	require.EqualValues(t, 1, resource.InstanceFlexibilityPolicy.InstanceSelections["selection-001"].GetRank())
+	require.Equal(t, []string{"n2-standard-4"}, resource.InstanceFlexibilityPolicy.InstanceSelections["selection-001"].MachineTypes)
+	require.Len(t, resource.InstanceProperties.Disks, 1)
+}

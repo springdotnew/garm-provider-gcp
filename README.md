@@ -206,6 +206,19 @@ To this end, this provider supports the following extra specs schema:
                     }
                 }
             }
+        },
+        "instance_flexibility": {
+            "type": "object",
+            "description": "Optional ranked machine types for regional placement.",
+            "properties": {
+                "candidates": {
+                    "type": "array",
+                    "description": "Machine types in descending preference order.",
+                    "items": {
+                        "$ref": "#/$defs/MachineTypeCandidate"
+                    }
+                }
+            }
         }
     },
     "additionalProperties": false
@@ -237,6 +250,8 @@ An example of extra specs json would look like this:
 **NOTE**: The `ssh_keys` add the option to [connect to an instance via SSH](https://cloud.google.com/compute/docs/instances/ssh) (either Linux or Windows). After you added the key as `username:ssh_public_key`, you can use the `private_key` to connect to the Linux/Windows instance via `ssh -i private_rsa username@instance_ip`. For **Windows** instances, the provider installs on the instance `google-compute-engine-ssh` and `enables ssh` if a `ssh_key` is added to extra-specs.
 
 **NOTE**: The `regional_placement` extra spec lets Compute Engine pick one of the allowed zones for each runner, using a [regional bulk insert](https://cloud.google.com/compute/docs/instances/multiple/create-in-bulk). It requires `enable_regional_placement = true` in the provider config and cannot be combined with `display_device` or `source_snapshot`. Runners created this way get a `zone/instance-name` provider ID, so the provider can manage them in whichever zone they landed in.
+
+**NOTE**: The `instance_flexibility` extra spec ranks alternative machine types for a `regional_placement` pool, in descending preference order. Compute Engine picks the best candidate with available capacity, so the pool flavor is ignored while the policy is set.
 
 To set it on an existing pool, simply run:
 

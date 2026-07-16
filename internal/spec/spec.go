@@ -138,6 +138,14 @@ func (e *extraSpecs) Validate() error {
 			return err
 		}
 	}
+	if e.InstanceFlexibility != nil {
+		if e.RegionalPlacement == nil {
+			return fmt.Errorf("instance_flexibility requires regional_placement")
+		}
+		if err := e.InstanceFlexibility.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -162,7 +170,8 @@ type extraSpecs struct {
 	// CMEK (Customer-Managed Encryption Key) for boot disk
 	BootDiskKmsKeyName string `json:"boot_disk_kms_key_name,omitempty" jsonschema:"description=The Cloud KMS key to use for boot disk encryption. Format: projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{key}"`
 	// Regional placement options
-	RegionalPlacement *RegionalPlacement `json:"regional_placement,omitempty" jsonschema:"description=Optional regional placement using the pool's existing flavor and image."`
+	RegionalPlacement   *RegionalPlacement   `json:"regional_placement,omitempty" jsonschema:"description=Optional regional placement using the pool's existing flavor and image."`
+	InstanceFlexibility *InstanceFlexibility `json:"instance_flexibility,omitempty" jsonschema:"description=Optional ranked machine types for regional placement."`
 	// The Cloudconfig struct from common package
 	cloudconfig.CloudConfigSpec
 }
@@ -229,7 +238,8 @@ type RunnerSpec struct {
 	// CMEK (Customer-Managed Encryption Key) for boot disk
 	BootDiskKmsKeyName string
 	// Regional placement options
-	RegionalPlacement *RegionalPlacement
+	RegionalPlacement   *RegionalPlacement
+	InstanceFlexibility *InstanceFlexibility
 }
 
 func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
@@ -288,6 +298,9 @@ func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
 	}
 	if extraSpecs.RegionalPlacement != nil {
 		r.RegionalPlacement = extraSpecs.RegionalPlacement
+	}
+	if extraSpecs.InstanceFlexibility != nil {
+		r.InstanceFlexibility = extraSpecs.InstanceFlexibility
 	}
 }
 

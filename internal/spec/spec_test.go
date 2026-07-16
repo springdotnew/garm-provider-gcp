@@ -190,6 +190,18 @@ func TestJsonSchemaValidation(t *testing.T) {
 			errString: "",
 		},
 		{
+			name: "Specs with regional_placement and instance_flexibility",
+			input: json.RawMessage(`{
+				"regional_placement": {
+					"zones": ["us-central1-a", "us-central1-b"]
+				},
+				"instance_flexibility": {
+					"candidates": [{"machine_type": "n2d-standard-4"}, {"machine_type": "n2-standard-4"}]
+				}
+			}`),
+			errString: "",
+		},
+		{
 			name: "Invalid input for display_device - wrong data type",
 			input: json.RawMessage(`{
 				"display_device": "true"
@@ -286,6 +298,13 @@ func TestJsonSchemaValidation(t *testing.T) {
 				"regional_placement": "us-central1-a"
 			}`),
 			errString: "schema validation failed: [regional_placement: Invalid type. Expected: object, given: string]",
+		},
+		{
+			name: "Invalid input for instance_flexibility - wrong data type",
+			input: json.RawMessage(`{
+				"instance_flexibility": "n2-standard-4"
+			}`),
+			errString: "schema validation failed: [instance_flexibility: Invalid type. Expected: object, given: string]",
 		},
 		{
 			name: "Invalid input - additional property",
@@ -636,6 +655,22 @@ func TestExtraSpecsValidate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "regional placement zones must belong to one region",
+		},
+		{
+			name: "Valid instance flexibility",
+			specs: &extraSpecs{
+				RegionalPlacement:   &RegionalPlacement{Zones: []string{"us-central1-a"}},
+				InstanceFlexibility: &InstanceFlexibility{Candidates: []MachineTypeCandidate{{MachineType: "n2-standard-4"}}},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Instance flexibility without regional placement",
+			specs: &extraSpecs{
+				InstanceFlexibility: &InstanceFlexibility{Candidates: []MachineTypeCandidate{{MachineType: "n2-standard-4"}}},
+			},
+			wantErr: true,
+			errMsg:  "instance_flexibility requires regional_placement",
 		},
 	}
 

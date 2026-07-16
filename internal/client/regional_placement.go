@@ -108,6 +108,32 @@ func buildRegionalInsertRequest(project string, runnerSpec *spec.RunnerSpec, ins
 			Zone: proto.String("zones/" + zone),
 		})
 	}
+	properties := &computepb.InstanceProperties{
+		MachineType:            proto.String(runnerSpec.BootstrapParams.Flavor),
+		Disks:                  disks,
+		Labels:                 inst.Labels,
+		Metadata:               inst.Metadata,
+		NetworkInterfaces:      inst.NetworkInterfaces,
+		ServiceAccounts:        inst.ServiceAccounts,
+		ShieldedInstanceConfig: inst.ShieldedInstanceConfig,
+		Tags:                   inst.Tags,
+	}
+	var flexibility *computepb.InstanceFlexibilityPolicy
+	if runnerSpec.InstanceFlexibility != nil {
+		// With an instance flexibility policy, the machine type comes from the
+		// ranked selections, not from the instance properties.
+		properties.MachineType = nil
+		selections := make(map[string]*computepb.InstanceFlexibilityPolicyInstanceSelection, len(runnerSpec.InstanceFlexibility.Candidates))
+		for rank, candidate := range runnerSpec.InstanceFlexibility.Candidates {
+			selections[fmt.Sprintf("selection-%03d", rank)] = &computepb.InstanceFlexibilityPolicyInstanceSelection{
+				Rank:         proto.Int64(int64(rank)),
+				MachineTypes: []string{candidate.MachineType},
+			}
+		}
+		flexibility = &computepb.InstanceFlexibilityPolicy{
+			InstanceSelections: selections,
+		}
+	}
 	return &computepb.BulkInsertRegionInstanceRequest{
 		Project:   project,
 		Region:    runnerSpec.RegionalPlacement.Region(),
@@ -119,16 +145,8 @@ func buildRegionalInsertRequest(project string, runnerSpec *spec.RunnerSpec, ins
 				TargetShape: proto.String(regionalTargetShape),
 				Zones:       zones,
 			},
-			InstanceProperties: &computepb.InstanceProperties{
-				MachineType:            proto.String(runnerSpec.BootstrapParams.Flavor),
-				Disks:                  disks,
-				Labels:                 inst.Labels,
-				Metadata:               inst.Metadata,
-				NetworkInterfaces:      inst.NetworkInterfaces,
-				ServiceAccounts:        inst.ServiceAccounts,
-				ShieldedInstanceConfig: inst.ShieldedInstanceConfig,
-				Tags:                   inst.Tags,
-			},
+			InstanceProperties:        properties,
+			InstanceFlexibilityPolicy: flexibility,
 			PerInstanceProperties: map[string]*computepb.BulkInsertInstanceResourcePerInstanceProperties{
 				inst.GetName(): {},
 			},
