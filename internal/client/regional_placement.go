@@ -356,7 +356,7 @@ func isRegionalCapacityError(err error) bool {
 	}
 	for _, reason := range reasons {
 		normalized := strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToLower(reason))
-		for _, capacityReason := range []string{"zoneresourcepoolexhausted", "resourcepoolexhausted", "resourcenotready"} {
+		for _, capacityReason := range []string{"zoneresourcepoolexhausted", "resourcepoolexhausted"} {
 			if strings.Contains(normalized, capacityReason) {
 				return true
 			}

@@ -161,6 +161,7 @@ func TestCreateInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T) {
 		"INVALID_DISK",
 		"INVALID_NETWORK",
 		"INVALID_MACHINE_TYPE",
+		"RESOURCE_NOT_READY",
 	} {
 		t.Run(reason, func(t *testing.T) {
 			ctx := context.Background()

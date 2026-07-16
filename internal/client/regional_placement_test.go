@@ -336,6 +336,7 @@ func TestCreateRegionalInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T)
 		"INVALID_DISK",
 		"INVALID_NETWORK",
 		"INVALID_MACHINE_TYPE",
+		"RESOURCE_NOT_READY",
 	} {
 		t.Run(reason, func(t *testing.T) {
 			ctx := context.Background()
@@ -409,9 +410,17 @@ func TestIsRegionalCapacityError(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "ResourceNotReadyReason",
+			err: &googleapi.Error{
+				Code:   400,
+				Errors: []googleapi.ErrorItem{{Reason: "RESOURCE_NOT_READY"}},
+			},
+			expected: false,
+		},
+		{
 			name:     "ResourceNotReadyMessage",
 			err:      fmt.Errorf("resourceNotReady"),
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "QuotaError",
