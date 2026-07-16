@@ -219,6 +219,10 @@ To this end, this provider supports the following extra specs schema:
                     }
                 }
             }
+        },
+        "regional_provisioning_model": {
+            "type": "string",
+            "description": "Provisioning model for regional placement. Supported values are STANDARD and SPOT."
         }
     },
     "additionalProperties": false
@@ -252,6 +256,8 @@ An example of extra specs json would look like this:
 **NOTE**: The `regional_placement` extra spec lets Compute Engine pick one of the allowed zones for each runner, using a [regional bulk insert](https://cloud.google.com/compute/docs/instances/multiple/create-in-bulk). It requires `enable_regional_placement = true` in the provider config and cannot be combined with `display_device` or `source_snapshot`. Runners created this way get a `zone/instance-name` provider ID, so the provider can manage them in whichever zone they landed in.
 
 **NOTE**: The `instance_flexibility` extra spec ranks alternative machine types for a `regional_placement` pool, in descending preference order. Compute Engine picks the best candidate with available capacity, so the pool flavor is ignored while the policy is set.
+
+**NOTE**: The `regional_provisioning_model` extra spec sets the [provisioning model](https://cloud.google.com/compute/docs/instances/spot) for a `regional_placement` pool. Setting it to `SPOT` creates spot runners, which cost less but can be preempted at any time. Preempted runners are terminated and deleted, and GARM replaces them as needed.
 
 To set it on an existing pool, simply run:
 

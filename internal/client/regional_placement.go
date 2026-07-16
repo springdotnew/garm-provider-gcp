@@ -118,6 +118,9 @@ func buildRegionalInsertRequest(project string, runnerSpec *spec.RunnerSpec, ins
 		ShieldedInstanceConfig: inst.ShieldedInstanceConfig,
 		Tags:                   inst.Tags,
 	}
+	if runnerSpec.RegionalProvisioningModel == "SPOT" {
+		properties.Scheduling = regionalSpotScheduling()
+	}
 	var flexibility *computepb.InstanceFlexibilityPolicy
 	if runnerSpec.InstanceFlexibility != nil {
 		// With an instance flexibility policy, the machine type comes from the
@@ -151,6 +154,16 @@ func buildRegionalInsertRequest(project string, runnerSpec *spec.RunnerSpec, ins
 				inst.GetName(): {},
 			},
 		},
+	}
+}
+
+func regionalSpotScheduling() *computepb.Scheduling {
+	return &computepb.Scheduling{
+		AutomaticRestart:          proto.Bool(false),
+		InstanceTerminationAction: proto.String("DELETE"),
+		OnHostMaintenance:         proto.String("TERMINATE"),
+		Preemptible:               proto.Bool(true),
+		ProvisioningModel:         proto.String("SPOT"),
 	}
 }
 

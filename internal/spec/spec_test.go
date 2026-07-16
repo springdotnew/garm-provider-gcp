@@ -202,6 +202,16 @@ func TestJsonSchemaValidation(t *testing.T) {
 			errString: "",
 		},
 		{
+			name: "Specs with regional_placement and regional_provisioning_model",
+			input: json.RawMessage(`{
+				"regional_placement": {
+					"zones": ["us-central1-a", "us-central1-b"]
+				},
+				"regional_provisioning_model": "SPOT"
+			}`),
+			errString: "",
+		},
+		{
 			name: "Invalid input for display_device - wrong data type",
 			input: json.RawMessage(`{
 				"display_device": "true"
@@ -305,6 +315,13 @@ func TestJsonSchemaValidation(t *testing.T) {
 				"instance_flexibility": "n2-standard-4"
 			}`),
 			errString: "schema validation failed: [instance_flexibility: Invalid type. Expected: object, given: string]",
+		},
+		{
+			name: "Invalid input for regional_provisioning_model - wrong data type",
+			input: json.RawMessage(`{
+				"regional_provisioning_model": true
+			}`),
+			errString: "schema validation failed: [regional_provisioning_model: Invalid type. Expected: string, given: boolean]",
 		},
 		{
 			name: "Invalid input - additional property",
@@ -671,6 +688,39 @@ func TestExtraSpecsValidate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "instance_flexibility requires regional_placement",
+		},
+		{
+			name: "Valid regional provisioning model - SPOT",
+			specs: &extraSpecs{
+				RegionalPlacement:         &RegionalPlacement{Zones: []string{"us-central1-a"}},
+				RegionalProvisioningModel: "SPOT",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Valid regional provisioning model - STANDARD",
+			specs: &extraSpecs{
+				RegionalPlacement:         &RegionalPlacement{Zones: []string{"us-central1-a"}},
+				RegionalProvisioningModel: "STANDARD",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Regional provisioning model without regional placement",
+			specs: &extraSpecs{
+				RegionalProvisioningModel: "SPOT",
+			},
+			wantErr: true,
+			errMsg:  "regional_provisioning_model requires regional_placement",
+		},
+		{
+			name: "Invalid regional provisioning model",
+			specs: &extraSpecs{
+				RegionalPlacement:         &RegionalPlacement{Zones: []string{"us-central1-a"}},
+				RegionalProvisioningModel: "PREEMPTIBLE",
+			},
+			wantErr: true,
+			errMsg:  "regional_provisioning_model must be STANDARD or SPOT",
 		},
 	}
 

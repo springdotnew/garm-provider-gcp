@@ -158,3 +158,36 @@ func TestBuildRegionalInsertRequestWithRankedMachineTypes(t *testing.T) {
 	require.Equal(t, []string{"n2-standard-4"}, resource.InstanceFlexibilityPolicy.InstanceSelections["selection-001"].MachineTypes)
 	require.Len(t, resource.InstanceProperties.Disks, 1)
 }
+
+func TestBuildRegionalInsertRequestWithSpotProvisioning(t *testing.T) {
+	runnerSpec := &spec.RunnerSpec{
+		RegionalPlacement: &spec.RegionalPlacement{
+			Zones: []string{"us-central1-a", "us-central1-b"},
+		},
+		RegionalProvisioningModel: "SPOT",
+		BootstrapParams: params.BootstrapInstance{
+			Name:   "garm-instance",
+			Flavor: "n1-standard-1",
+		},
+	}
+	instance := &computepb.Instance{
+		Name: proto.String("garm-instance"),
+		Labels: map[string]string{
+			"garmpoolid": "garm-pool",
+		},
+		Disks: []*computepb.AttachedDisk{
+			{
+				Boot: proto.Bool(true),
+			},
+		},
+	}
+	markRegionalInstance(instance)
+
+	req := buildRegionalInsertRequest("my-project", runnerSpec, instance)
+	scheduling := req.BulkInsertInstanceResourceResource.InstanceProperties.Scheduling
+	require.Equal(t, "SPOT", scheduling.GetProvisioningModel())
+	require.True(t, scheduling.GetPreemptible())
+	require.False(t, scheduling.GetAutomaticRestart())
+	require.Equal(t, "DELETE", scheduling.GetInstanceTerminationAction())
+	require.Equal(t, "TERMINATE", scheduling.GetOnHostMaintenance())
+}
