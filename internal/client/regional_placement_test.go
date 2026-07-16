@@ -328,6 +328,57 @@ func TestCreateRegionalInstanceReconcilesAmbiguousError(t *testing.T) {
 	mockRegionalClient.AssertExpectations(t)
 }
 
+func TestCreateRegionalInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T) {
+	for _, reason := range []string{
+		"UNAUTHENTICATED",
+		"PERMISSION_DENIED",
+		"INVALID_IMAGE",
+		"INVALID_DISK",
+		"INVALID_NETWORK",
+		"INVALID_MACHINE_TYPE",
+	} {
+		t.Run(reason, func(t *testing.T) {
+			ctx := context.Background()
+			mockClient := new(MockGcpClient)
+			mockRegionalClient := new(MockRegionalGcpClient)
+			gcpCli := &GcpCli{
+				cfg: &config.Config{
+					ProjectId:               "my-project",
+					EnableRegionalPlacement: true,
+				},
+				client:       mockClient,
+				regionClient: mockRegionalClient,
+			}
+
+			notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
+			mockClient.On("Get", ctx, mock.Anything, mock.Anything).
+				Return((*computepb.Instance)(nil), notFound).Twice()
+			mockRegionalClient.On("BulkInsert", ctx, mock.Anything, mock.Anything).
+				Return((*compute.Operation)(nil), errors.New(reason)).Once()
+
+			runnerSpec := &spec.RunnerSpec{
+				RegionalPlacement:          &spec.RegionalPlacement{Zones: []string{"us-central1-a"}},
+				RegionalProvisioningModel:  "SPOT",
+				RegionalFallbackToStandard: true,
+				BootstrapParams: params.BootstrapInstance{
+					Name:   "garm-instance",
+					Flavor: "n1-standard-1",
+				},
+			}
+			instance := &computepb.Instance{
+				Name:   proto.String("garm-instance"),
+				Labels: map[string]string{"garmpoolid": "garm-pool"},
+			}
+
+			_, err := gcpCli.createRegionalInstance(ctx, runnerSpec, instance)
+			require.ErrorContains(t, err, reason)
+			mockRegionalClient.AssertNumberOfCalls(t, "BulkInsert", 1)
+			mockClient.AssertExpectations(t)
+			mockRegionalClient.AssertExpectations(t)
+		})
+	}
+}
+
 func TestIsRegionalCapacityError(t *testing.T) {
 	tests := []struct {
 		name     string

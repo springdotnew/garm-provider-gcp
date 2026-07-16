@@ -100,3 +100,22 @@ func TestRegionalPlacementRequiresProviderOptIn(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "us-central1", spec.RegionalPlacement.Region())
 }
+
+func TestGetRunnerSpecRejectsMalformedExtraSpecs(t *testing.T) {
+	DefaultToolFetch = func(osType params.OSType, osArch params.OSArch, tools []params.RunnerApplicationDownload) (params.RunnerApplicationDownload, error) {
+		return params.RunnerApplicationDownload{}, nil
+	}
+	cfg := &config.Config{
+		Zone:         "example-region-a",
+		ProjectId:    "my-project",
+		NetworkID:    "my-network",
+		SubnetworkID: "my-subnetwork",
+	}
+	data := params.BootstrapInstance{
+		Name:       "garm-instance",
+		ExtraSpecs: json.RawMessage(`{"unknown_fallback_option": true}`),
+	}
+
+	_, err := GetRunnerSpecFromBootstrapParams(cfg, data, "my-controller")
+	require.ErrorContains(t, err, "Additional property unknown_fallback_option is not allowed")
+}

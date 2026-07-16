@@ -153,6 +153,7 @@ func TestCreateInstanceFallsBackToStandardOnlyForCapacity(t *testing.T) {
 
 func TestCreateInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T) {
 	for _, reason := range []string{
+		"UNAUTHENTICATED",
 		"QUOTA_EXCEEDED",
 		"PERMISSION_DENIED",
 		"INVALID_IMAGE",
