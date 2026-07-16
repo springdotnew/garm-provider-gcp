@@ -152,29 +152,41 @@ func TestCreateInstanceFallsBackToStandardOnlyForCapacity(t *testing.T) {
 }
 
 func TestCreateInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T) {
-	ctx := context.Background()
-	mockClient := new(MockGcpClient)
-	gcpCli := &GcpCli{
-		cfg:    &config.Config{Zone: "us-central1-a", ProjectId: "my-project", NetworkID: "my-network", SubnetworkID: "my-subnetwork"},
-		client: mockClient,
+	for _, reason := range []string{
+		"QUOTA_EXCEEDED",
+		"PERMISSION_DENIED",
+		"INVALID_IMAGE",
+		"INVALID_DISK",
+		"INVALID_NETWORK",
+		"INVALID_MACHINE_TYPE",
+	} {
+		t.Run(reason, func(t *testing.T) {
+			ctx := context.Background()
+			mockClient := new(MockGcpClient)
+			gcpCli := &GcpCli{
+				cfg:    &config.Config{Zone: "us-central1-a", ProjectId: "my-project", NetworkID: "my-network", SubnetworkID: "my-subnetwork"},
+				client: mockClient,
+			}
+			mockClient.On("Insert", mock.Anything, mock.Anything, mock.Anything).
+				Return((*compute.Operation)(nil), errors.New(reason)).Once()
+			spec.DefaultCloudConfigFunc = func(params.BootstrapInstance, params.RunnerApplicationDownload, string) (string, error) {
+				return "MockUserData", nil
+			}
+			_, err := gcpCli.CreateInstance(ctx, minimalRunnerSpec("SPOT", true))
+			assert.ErrorContains(t, err, reason)
+			mockClient.AssertNumberOfCalls(t, "Insert", 1)
+		})
 	}
-	mockClient.On("Insert", mock.Anything, mock.Anything, mock.Anything).Return((*compute.Operation)(nil), errors.New("QUOTA_EXCEEDED")).Once()
-	spec.DefaultCloudConfigFunc = func(params.BootstrapInstance, params.RunnerApplicationDownload, string) (string, error) {
-		return "MockUserData", nil
-	}
-	_, err := gcpCli.CreateInstance(ctx, minimalRunnerSpec("SPOT", true))
-	assert.ErrorContains(t, err, "QUOTA_EXCEEDED")
-	mockClient.AssertNumberOfCalls(t, "Insert", 1)
 }
 
 func minimalRunnerSpec(provisioningModel string, fallback bool) *spec.RunnerSpec {
 	return &spec.RunnerSpec{
 		ProvisioningModel: provisioningModel, FallbackToStandard: fallback,
 		NetworkID: "my-network", SubnetworkID: "my-subnetwork", NicType: "GVNIC", DiskSize: 100,
-		CustomLabels: map[string]string{"purpose": "ci-runner"},
+		CustomLabels: map[string]string{"purpose": "automation-runner"},
 		BootstrapParams: params.BootstrapInstance{
 			Name: "garm-instance", Flavor: "t2a-standard-1",
-			Image:  "projects/my-project/global/images/family/ci-runner-2404-arm64",
+			Image:  "projects/my-project/global/images/family/runner-image-arm64",
 			OSType: params.Linux, OSArch: params.Arm64,
 		},
 	}

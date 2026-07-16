@@ -17,6 +17,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -65,6 +66,16 @@ func TestBuildRegionalInsertRequest(t *testing.T) {
 				Network: proto.String("my-network"),
 			},
 		},
+		Metadata: &computepb.Metadata{Items: []*computepb.Items{
+			{Key: proto.String("runner_name"), Value: proto.String("garm-instance")},
+		}},
+		ServiceAccounts: []*computepb.ServiceAccount{
+			{Email: proto.String("runner@example.invalid"), Scopes: []string{"scope-a"}},
+		},
+		ShieldedInstanceConfig: &computepb.ShieldedInstanceConfig{
+			EnableVtpm: proto.Bool(true),
+		},
+		Tags: &computepb.Tags{Items: []string{"automation-runner"}},
 	}
 	markRegionalInstance(instance)
 
@@ -82,6 +93,11 @@ func TestBuildRegionalInsertRequest(t *testing.T) {
 	require.Equal(t, "projects/garm-testing/global/images/garm-image", resource.InstanceProperties.Disks[0].InitializeParams.GetSourceImage())
 	require.Nil(t, resource.InstanceProperties.Disks[0].InitializeParams.SourceSnapshot)
 	require.Equal(t, "true", resource.InstanceProperties.Labels[util.RegionalPlacementLabel])
+	require.True(t, proto.Equal(instance.Metadata, resource.InstanceProperties.Metadata))
+	require.Equal(t, instance.NetworkInterfaces, resource.InstanceProperties.NetworkInterfaces)
+	require.Equal(t, instance.ServiceAccounts, resource.InstanceProperties.ServiceAccounts)
+	require.True(t, proto.Equal(instance.ShieldedInstanceConfig, resource.InstanceProperties.ShieldedInstanceConfig))
+	require.True(t, proto.Equal(instance.Tags, resource.InstanceProperties.Tags))
 	require.Contains(t, resource.PerInstanceProperties, "garm-instance")
 }
 
@@ -259,6 +275,55 @@ func TestCreateRegionalInstanceSpotFallback(t *testing.T) {
 	result, err := gcpCli.createRegionalInstance(ctx, runnerSpec, instance)
 	require.NoError(t, err)
 	require.Equal(t, created, result)
+	mockClient.AssertExpectations(t)
+	mockRegionalClient.AssertExpectations(t)
+}
+
+func TestCreateRegionalInstanceReconcilesAmbiguousError(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(MockGcpClient)
+	mockRegionalClient := new(MockRegionalGcpClient)
+	gcpCli := &GcpCli{
+		cfg: &config.Config{
+			ProjectId:               "my-project",
+			EnableRegionalPlacement: true,
+		},
+		client:       mockClient,
+		regionClient: mockRegionalClient,
+	}
+
+	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).Return((*computepb.Instance)(nil), notFound).Once()
+	created := &computepb.Instance{
+		Name: proto.String("garm-instance"),
+		Zone: proto.String("zones/us-central1-b"),
+		Labels: map[string]string{
+			"garmpoolid":                "garm-pool",
+			util.RegionalPlacementLabel: "true",
+		},
+	}
+	mockClient.On("Get", mock.Anything, mock.Anything, mock.Anything).Return(created, nil).Once()
+	mockRegionalClient.On("BulkInsert", ctx, mock.Anything, mock.Anything).
+		Return((*compute.Operation)(nil), errors.New("unexpected EOF")).Once()
+
+	runnerSpec := &spec.RunnerSpec{
+		RegionalPlacement:          &spec.RegionalPlacement{Zones: []string{"us-central1-b"}},
+		RegionalProvisioningModel:  "SPOT",
+		RegionalFallbackToStandard: true,
+		BootstrapParams: params.BootstrapInstance{
+			Name:   "garm-instance",
+			Flavor: "n1-standard-1",
+		},
+	}
+	instance := &computepb.Instance{
+		Name:   proto.String("garm-instance"),
+		Labels: map[string]string{"garmpoolid": "garm-pool"},
+	}
+
+	result, err := gcpCli.createRegionalInstance(ctx, runnerSpec, instance)
+	require.NoError(t, err)
+	require.Equal(t, created, result)
+	mockRegionalClient.AssertNumberOfCalls(t, "BulkInsert", 1)
 	mockClient.AssertExpectations(t)
 	mockRegionalClient.AssertExpectations(t)
 }

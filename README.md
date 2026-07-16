@@ -106,7 +106,29 @@ To this end, this provider supports the following extra specs schema:
     "$schema": "http://cloudbase.it/garm-provider-gcp/schemas/extra_specs#",
     "type": "object",
     "description": "Schema defining supported extra specs for the Garm GCP Provider",
+    "$defs": {
+        "MachineTypeCandidate": {
+            "type": "object",
+            "description": "A machine type considered by a regional instance flexibility policy.",
+            "properties": {
+                "machine_type": {
+                    "type": "string",
+                    "description": "Compute Engine machine type name without a zone or URL."
+                }
+            },
+            "required": ["machine_type"],
+            "additionalProperties": false
+        }
+    },
     "properties": {
+        "provisioning_model": {
+            "type": "string",
+            "description": "Provisioning model for the legacy zonal create path. Supported values are STANDARD and SPOT."
+        },
+        "fallback_to_standard": {
+            "type": "boolean",
+            "description": "Retry a zonal SPOT create with STANDARD only after a recognized capacity error."
+        },
         "display_device": {
             "type": "boolean",
             "description": "Enable the display device on the VM."
@@ -264,6 +286,8 @@ An example of extra specs json would look like this:
 **NOTE**: The `regional_provisioning_model` extra spec sets the [provisioning model](https://cloud.google.com/compute/docs/instances/spot) for a `regional_placement` pool. Setting it to `SPOT` creates spot runners, which cost less but can be preempted at any time. Preempted runners are terminated and deleted, and GARM replaces them as needed.
 
 **NOTE**: The `regional_fallback_to_standard` extra spec retries a failed `SPOT` create with the `STANDARD` provisioning model, when the failure was caused by spot capacity running out in all allowed zones. It requires `regional_provisioning_model` to be `SPOT`.
+
+**NOTE**: Existing zonal pools can use `provisioning_model: "SPOT"` with `fallback_to_standard: true`. That fallback is also restricted to recognized capacity errors; quota, permission, and invalid configuration errors are returned without a STANDARD retry. These legacy zonal fields are separate from the `regional_*` fields above.
 
 To set it on an existing pool, simply run:
 
