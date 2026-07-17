@@ -352,6 +352,30 @@ func TestCreateRegionalInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T)
 		{name: "InvalidMachineType", err: errors.New("INVALID_MACHINE_TYPE")},
 		{name: "ResourceNotReady", err: errors.New("RESOURCE_NOT_READY")},
 		{
+			name: "MixedCapacityAndUnauthenticatedMessage",
+			err:  errors.New("ZONE_RESOURCE_POOL_EXHAUSTED: UNAUTHENTICATED"),
+		},
+		{
+			name: "MixedCapacityAndInvalidImageMessage",
+			err:  errors.New("ZONE_RESOURCE_POOL_EXHAUSTED: INVALID_IMAGE"),
+		},
+		{
+			name: "MixedCapacityAndInvalidDiskMessage",
+			err:  errors.New("ZONE_RESOURCE_POOL_EXHAUSTED: INVALID_DISK"),
+		},
+		{
+			name: "MixedCapacityAndInvalidNetworkMessage",
+			err:  errors.New("ZONE_RESOURCE_POOL_EXHAUSTED: INVALID_NETWORK"),
+		},
+		{
+			name: "MixedCapacityAndInvalidMachineTypeMessage",
+			err:  errors.New("ZONE_RESOURCE_POOL_EXHAUSTED: INVALID_MACHINE_TYPE"),
+		},
+		{
+			name: "MixedCapacityAndMalformedConfigMessage",
+			err:  errors.New("ZONE_RESOURCE_POOL_EXHAUSTED: MALFORMED_CONFIG"),
+		},
+		{
 			name:            "MixedCapacityAndQuotaReasons",
 			err:             mixedCapacityAndQuota,
 			expectedReasons: []string{"ZONE_RESOURCE_POOL_EXHAUSTED", "QUOTA_EXCEEDED"},
@@ -461,6 +485,36 @@ func TestIsRegionalCapacityError(t *testing.T) {
 		{
 			name:     "MixedCapacityAndQuotaMessage",
 			err:      fmt.Errorf("ZONE_RESOURCE_POOL_EXHAUSTED: QUOTA_EXCEEDED"),
+			expected: false,
+		},
+		{
+			name:     "MixedCapacityAndUnauthenticatedMessage",
+			err:      fmt.Errorf("ZONE_RESOURCE_POOL_EXHAUSTED: UNAUTHENTICATED"),
+			expected: false,
+		},
+		{
+			name:     "MixedCapacityAndInvalidImageMessage",
+			err:      fmt.Errorf("ZONE_RESOURCE_POOL_EXHAUSTED: INVALID_IMAGE"),
+			expected: false,
+		},
+		{
+			name:     "MixedCapacityAndInvalidDiskMessage",
+			err:      fmt.Errorf("ZONE_RESOURCE_POOL_EXHAUSTED: INVALID_DISK"),
+			expected: false,
+		},
+		{
+			name:     "MixedCapacityAndInvalidNetworkMessage",
+			err:      fmt.Errorf("ZONE_RESOURCE_POOL_EXHAUSTED: INVALID_NETWORK"),
+			expected: false,
+		},
+		{
+			name:     "MixedCapacityAndInvalidMachineTypeMessage",
+			err:      fmt.Errorf("ZONE_RESOURCE_POOL_EXHAUSTED: INVALID_MACHINE_TYPE"),
+			expected: false,
+		},
+		{
+			name:     "MixedCapacityAndMalformedConfigMessage",
+			err:      fmt.Errorf("ZONE_RESOURCE_POOL_EXHAUSTED: MALFORMED_CONFIG"),
 			expected: false,
 		},
 		{
