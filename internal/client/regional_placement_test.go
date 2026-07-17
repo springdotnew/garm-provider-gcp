@@ -329,16 +329,36 @@ func TestCreateRegionalInstanceReconcilesAmbiguousError(t *testing.T) {
 }
 
 func TestCreateRegionalInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T) {
-	for _, reason := range []string{
-		"UNAUTHENTICATED",
-		"PERMISSION_DENIED",
-		"INVALID_IMAGE",
-		"INVALID_DISK",
-		"INVALID_NETWORK",
-		"INVALID_MACHINE_TYPE",
-		"RESOURCE_NOT_READY",
-	} {
-		t.Run(reason, func(t *testing.T) {
+	mixedCapacityAndQuota, ok := apierror.FromError(&googleapi.Error{
+		Code: 503,
+		Errors: []googleapi.ErrorItem{
+			{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"},
+			{Reason: "QUOTA_EXCEEDED"},
+		},
+	})
+	require.True(t, ok)
+
+	tests := []struct {
+		name            string
+		err             error
+		expectedReasons []string
+	}{
+		{name: "Unauthenticated", err: errors.New("UNAUTHENTICATED")},
+		{name: "QuotaExceeded", err: errors.New("QUOTA_EXCEEDED")},
+		{name: "PermissionDenied", err: errors.New("PERMISSION_DENIED")},
+		{name: "InvalidImage", err: errors.New("INVALID_IMAGE")},
+		{name: "InvalidDisk", err: errors.New("INVALID_DISK")},
+		{name: "InvalidNetwork", err: errors.New("INVALID_NETWORK")},
+		{name: "InvalidMachineType", err: errors.New("INVALID_MACHINE_TYPE")},
+		{name: "ResourceNotReady", err: errors.New("RESOURCE_NOT_READY")},
+		{
+			name:            "MixedCapacityAndQuotaReasons",
+			err:             mixedCapacityAndQuota,
+			expectedReasons: []string{"ZONE_RESOURCE_POOL_EXHAUSTED", "QUOTA_EXCEEDED"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			mockClient := new(MockGcpClient)
 			mockRegionalClient := new(MockRegionalGcpClient)
@@ -355,7 +375,7 @@ func TestCreateRegionalInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T)
 			mockClient.On("Get", ctx, mock.Anything, mock.Anything).
 				Return((*computepb.Instance)(nil), notFound).Twice()
 			mockRegionalClient.On("BulkInsert", ctx, mock.Anything, mock.Anything).
-				Return((*compute.Operation)(nil), errors.New(reason)).Once()
+				Return((*compute.Operation)(nil), tt.err).Once()
 
 			runnerSpec := &spec.RunnerSpec{
 				RegionalPlacement:          &spec.RegionalPlacement{Zones: []string{"us-central1-a"}},
@@ -372,7 +392,16 @@ func TestCreateRegionalInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T)
 			}
 
 			_, err := gcpCli.createRegionalInstance(ctx, runnerSpec, instance)
-			require.ErrorContains(t, err, reason)
+			require.ErrorIs(t, err, tt.err)
+			if len(tt.expectedReasons) > 0 {
+				var googleErr *googleapi.Error
+				require.ErrorAs(t, err, &googleErr)
+				reasons := make([]string, 0, len(googleErr.Errors))
+				for _, item := range googleErr.Errors {
+					reasons = append(reasons, item.Reason)
+				}
+				require.Equal(t, tt.expectedReasons, reasons)
+			}
 			mockRegionalClient.AssertNumberOfCalls(t, "BulkInsert", 1)
 			mockClient.AssertExpectations(t)
 			mockRegionalClient.AssertExpectations(t)
@@ -381,6 +410,15 @@ func TestCreateRegionalInstanceDoesNotFallbackForNonCapacityErrors(t *testing.T)
 }
 
 func TestIsRegionalCapacityError(t *testing.T) {
+	mixedCapacityAndQuota, ok := apierror.FromError(&googleapi.Error{
+		Code: 503,
+		Errors: []googleapi.ErrorItem{
+			{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"},
+			{Reason: "QUOTA_EXCEEDED"},
+		},
+	})
+	require.True(t, ok)
+
 	tests := []struct {
 		name     string
 		err      error
@@ -400,9 +438,30 @@ func TestIsRegionalCapacityError(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "MixedCapacityAndQuotaReasons",
+			err:      mixedCapacityAndQuota,
+			expected: false,
+		},
+		{
+			name: "MixedCapacityAndPermissionReasons",
+			err: &googleapi.Error{
+				Code: 503,
+				Errors: []googleapi.ErrorItem{
+					{Reason: "RESOURCE_POOL_EXHAUSTED"},
+					{Reason: "PERMISSION_DENIED"},
+				},
+			},
+			expected: false,
+		},
+		{
 			name:     "CapacityMessage",
 			err:      fmt.Errorf("failed to create regional instance: ZONE_RESOURCE_POOL_EXHAUSTED"),
 			expected: true,
+		},
+		{
+			name:     "MixedCapacityAndQuotaMessage",
+			err:      fmt.Errorf("ZONE_RESOURCE_POOL_EXHAUSTED: QUOTA_EXCEEDED"),
+			expected: false,
 		},
 		{
 			name:     "PoolExhaustedMessage",

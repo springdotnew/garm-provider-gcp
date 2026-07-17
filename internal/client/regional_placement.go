@@ -352,15 +352,53 @@ func isRegionalCapacityError(err error) bool {
 		}
 	}
 	if len(reasons) == 0 {
-		reasons = append(reasons, err.Error())
+		message := err.Error()
+		if containsRegionalNonCapacitySignal(message) {
+			return false
+		}
+		return containsRegionalCapacityReason(message)
 	}
+	hasCapacityReason := false
 	for _, reason := range reasons {
-		normalized := strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToLower(reason))
-		for _, capacityReason := range []string{"zoneresourcepoolexhausted", "resourcepoolexhausted"} {
-			if strings.Contains(normalized, capacityReason) {
-				return true
-			}
+		if !containsRegionalCapacityReason(reason) {
+			return false
+		}
+		hasCapacityReason = true
+	}
+	return hasCapacityReason
+}
+
+func containsRegionalCapacityReason(reason string) bool {
+	normalized := normalizeRegionalErrorReason(reason)
+	for _, capacityReason := range []string{"zoneresourcepoolexhausted", "resourcepoolexhausted"} {
+		if strings.Contains(normalized, capacityReason) {
+			return true
 		}
 	}
 	return false
+}
+
+func containsRegionalNonCapacitySignal(reason string) bool {
+	normalized := normalizeRegionalErrorReason(reason)
+	for _, signal := range []string{
+		"quota",
+		"permissiondenied",
+		"authenticationrequired",
+		"unauthorized",
+		"forbidden",
+		"invalidargument",
+		"invalidvalue",
+		"invalidresourceusage",
+		"notfound",
+		"resourcenotready",
+	} {
+		if strings.Contains(normalized, signal) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeRegionalErrorReason(reason string) string {
+	return strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToLower(reason))
 }
