@@ -158,6 +158,13 @@ func TestJsonSchemaValidation(t *testing.T) {
 			errString: "",
 		},
 		{
+			name: "Specs just with early_bootstrap",
+			input: json.RawMessage(`{
+				"early_bootstrap": true
+			}`),
+			errString: "",
+		},
+		{
 			name: "Specs just with runner_install_template",
 			input: json.RawMessage(`{
 				"runner_install_template": "IyEvYmluL2Jhc2gKZWNobyBJbnN0YWxsaW5nIHJ1bm5lci4uLg=="
@@ -413,6 +420,7 @@ func TestMergeExtraSpecs(t *testing.T) {
 				SSHKeys:         []string{"ssh-key1", "ssh-key2"},
 				EnableBootDebug: &enable_boot_debug,
 				DisableUpdates:  proto.Bool(true),
+				EarlyBootstrap:  true,
 			},
 		},
 		{
@@ -500,6 +508,7 @@ func TestMergeExtraSpecs(t *testing.T) {
 				expectedDisableUpdates = *tt.extraSpecs.DisableUpdates
 			}
 			assert.Equal(t, expectedDisableUpdates, spec.DisableUpdates, "expected DisableUpdates to be %t, got %t", expectedDisableUpdates, spec.DisableUpdates)
+			assert.Equal(t, tt.extraSpecs.EarlyBootstrap, spec.EarlyBootstrap, "expected EarlyBootstrap to be %t, got %t", tt.extraSpecs.EarlyBootstrap, spec.EarlyBootstrap)
 		})
 	}
 }

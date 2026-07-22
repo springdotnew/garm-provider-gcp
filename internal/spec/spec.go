@@ -205,6 +205,7 @@ type extraSpecs struct {
 	RegionalProvisioningModel  string               `json:"regional_provisioning_model,omitempty" jsonschema:"description=Provisioning model for regional placement. Supported values are STANDARD and SPOT."`
 	RegionalFallbackToStandard bool                 `json:"regional_fallback_to_standard,omitempty" jsonschema:"description=Fall back to the STANDARD provisioning model after a regional SPOT capacity failure."`
 	RegionalZoneFallback       bool                 `json:"regional_zone_fallback,omitempty" jsonschema:"description=Try regional placement zones in order after recognized capacity failures."`
+	EarlyBootstrap             bool                 `json:"early_bootstrap,omitempty" jsonschema:"description=Start runner installation from a cloud boothook instead of cloud-final. Requires a pre-baked Linux image with the runner user and boot updates disabled."`
 	// The Cloudconfig struct from common package
 	cloudconfig.CloudConfigSpec
 }
@@ -278,6 +279,7 @@ type RunnerSpec struct {
 	RegionalProvisioningModel  string
 	RegionalFallbackToStandard bool
 	RegionalZoneFallback       bool
+	EarlyBootstrap             bool
 }
 
 func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
@@ -351,6 +353,9 @@ func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
 	if extraSpecs.RegionalZoneFallback {
 		r.RegionalZoneFallback = extraSpecs.RegionalZoneFallback
 	}
+	if extraSpecs.EarlyBootstrap {
+		r.EarlyBootstrap = true
+	}
 }
 
 func (r *RunnerSpec) Validate() error {
@@ -376,9 +381,15 @@ func (r RunnerSpec) ComposeUserData() (string, error) {
 	bootstrapParams := r.BootstrapParams
 	bootstrapParams.UserDataOptions.EnableBootDebug = r.EnableBootDebug
 	bootstrapParams.UserDataOptions.DisableUpdatesOnBoot = r.DisableUpdates
+	if r.EarlyBootstrap && bootstrapParams.OSType != params.Linux {
+		return "", fmt.Errorf("early_bootstrap supports only Linux")
+	}
 
 	switch r.BootstrapParams.OSType {
 	case params.Linux:
+		if r.EarlyBootstrap {
+			return r.composeEarlyBootstrapUserData(bootstrapParams)
+		}
 		// Get the cloud-init config
 		udata, err := DefaultCloudConfigFunc(bootstrapParams, r.Tools, bootstrapParams.Name)
 		if err != nil {

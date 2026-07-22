@@ -253,6 +253,10 @@ To this end, this provider supports the following extra specs schema:
         "regional_zone_fallback": {
             "type": "boolean",
             "description": "Try regional placement zones in order after recognized capacity failures."
+        },
+        "early_bootstrap": {
+            "type": "boolean",
+            "description": "Start runner installation from a cloud boothook instead of cloud-final. Requires a pre-baked Linux image with the runner user and boot updates disabled."
         }
     },
     "additionalProperties": false
@@ -292,6 +296,8 @@ An example of extra specs json would look like this:
 **NOTE**: The `regional_fallback_to_standard` extra spec retries a failed `SPOT` create with the `STANDARD` provisioning model, when the failure was caused by spot capacity running out in all allowed zones. It requires `regional_provisioning_model` to be `SPOT`.
 
 **NOTE**: The `regional_zone_fallback` extra spec tries each `regional_placement` zone in configured order and advances only after a recognized capacity failure. It requires at least two zones. Quota, permission, invalid configuration, and ambiguous create errors stop immediately instead of risking duplicate runners or masking operational failures. When combined with `regional_fallback_to_standard`, all configured zones are tried for `SPOT` before they are tried for `STANDARD`.
+
+**NOTE**: The `early_bootstrap` extra spec is an opt-in path for pre-baked Linux runner images. It starts GARM's existing runner-install wrapper from a cloud boothook so instance-specific setup can overlap the remainder of boot. It requires `disable_updates: true` and a pre-existing `runner` user, and fails closed when extra packages, pre-install scripts, or a CA bundle would otherwise be applied by cloud-final. The selected runner install template remains responsible for delaying the Actions listener until job dependencies such as Docker are ready.
 
 **NOTE**: Existing zonal pools can use `provisioning_model: "SPOT"` with `fallback_to_standard: true`. That fallback is also restricted to recognized capacity errors; quota, permission, and invalid configuration errors are returned without a STANDARD retry. These legacy zonal fields are separate from the `regional_*` fields above and cannot be combined with `regional_placement` — regional pools must use `regional_provisioning_model` and `regional_fallback_to_standard`.
 
