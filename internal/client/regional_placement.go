@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
@@ -268,22 +269,38 @@ func (g *GcpCli) getInstanceInZone(ctx context.Context, zone, name string) (*com
 }
 
 func (g *GcpCli) findInstanceInZones(ctx context.Context, name string, zones []string) (*computepb.Instance, error) {
+	type zoneResult struct {
+		instance *computepb.Instance
+		err      error
+	}
+
+	results := make([]zoneResult, len(zones))
+	var lookups sync.WaitGroup
+	lookups.Add(len(zones))
+	for index, zone := range zones {
+		go func() {
+			defer lookups.Done()
+			results[index].instance, results[index].err = g.getInstanceInZone(ctx, zone, name)
+		}()
+	}
+	lookups.Wait()
+
 	var found *computepb.Instance
-	for _, zone := range zones {
-		instance, err := g.getInstanceInZone(ctx, zone, name)
-		if err != nil {
-			if isRegionalNotFound(err) {
+	for index, zone := range zones {
+		result := results[index]
+		if result.err != nil {
+			if isRegionalNotFound(result.err) {
 				continue
 			}
-			return nil, fmt.Errorf("failed to search zone %s: %w", zone, err)
+			return nil, fmt.Errorf("failed to search zone %s: %w", zone, result.err)
 		}
-		if instance == nil {
+		if result.instance == nil {
 			continue
 		}
 		if found != nil {
 			return nil, fmt.Errorf("instance name %s exists in multiple zones", name)
 		}
-		found = instance
+		found = result.instance
 	}
 	return found, nil
 }

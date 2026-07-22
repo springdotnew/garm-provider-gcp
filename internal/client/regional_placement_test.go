@@ -19,7 +19,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
@@ -141,6 +143,57 @@ func TestSplitRegionalProviderID(t *testing.T) {
 			require.Equal(t, tt.expectedName, name)
 		})
 	}
+}
+
+func TestFindInstanceInZonesLooksUpZonesConcurrently(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(MockGcpClient)
+	gcpCli := &GcpCli{
+		cfg:    &config.Config{ProjectId: "my-project"},
+		client: mockClient,
+	}
+
+	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseLookups := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseLookups()
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).
+		Run(func(mock.Arguments) {
+			started <- struct{}{}
+			<-release
+		}).
+		Return((*computepb.Instance)(nil), notFound).
+		Twice()
+
+	type lookupResult struct {
+		instance *computepb.Instance
+		err      error
+	}
+	done := make(chan lookupResult, 1)
+	go func() {
+		instance, err := gcpCli.findInstanceInZones(
+			ctx,
+			"garm-instance",
+			[]string{"us-central1-a", "us-central1-b"},
+		)
+		done <- lookupResult{instance: instance, err: err}
+	}()
+
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			releaseLookups()
+			t.Fatal("zone lookups did not overlap")
+		}
+	}
+	releaseLookups()
+	result := <-done
+	require.NoError(t, result.err)
+	require.Nil(t, result.instance)
+	mockClient.AssertExpectations(t)
 }
 
 func TestBuildRegionalInsertRequestWithRankedMachineTypes(t *testing.T) {
