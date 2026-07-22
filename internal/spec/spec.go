@@ -16,6 +16,7 @@
 package spec
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -23,6 +24,7 @@ import (
 
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"github.com/cloudbase/garm-provider-common/cloudconfig"
+	"github.com/cloudbase/garm-provider-common/defaults"
 	"github.com/cloudbase/garm-provider-common/params"
 	"github.com/cloudbase/garm-provider-common/util"
 	"github.com/cloudbase/garm-provider-gcp/config"
@@ -170,21 +172,22 @@ func (e *extraSpecs) Validate() error {
 }
 
 type extraSpecs struct {
-	ProvisioningModel  string                      `json:"provisioning_model,omitempty" jsonschema:"description=Compute Engine provisioning model. Supported values are STANDARD and SPOT."`
-	FallbackToStandard bool                        `json:"fallback_to_standard,omitempty" jsonschema:"description=Retry with STANDARD only when SPOT allocation fails because zonal capacity is unavailable."`
-	DiskSize           int64                       `json:"disksize,omitempty" jsonschema:"description=The size of the root disk in GB. Default is 127 GB."`
-	DiskType           string                      `json:"disktype,omitempty" jsonschema:"description=The type of the disk. Default is pd-standard."`
-	DisplayDevice      bool                        `json:"display_device,omitempty" jsonschema:"description=Enable the display device on the VM."`
-	NetworkID          string                      `json:"network_id,omitempty" jsonschema:"description=The name of the network attached to the instance."`
-	SubnetworkID       string                      `json:"subnetwork_id,omitempty" jsonschema:"description=The name of the subnetwork attached to the instance."`
-	NicType            string                      `json:"nic_type,omitempty" jsonschema:"description=The type of the network interface card. Default is VIRTIO_NET."`
-	CustomLabels       map[string]string           `json:"custom_labels,omitempty" jsonschema:"description=Custom labels to apply to the instance. Each label is a key-value pair where both key and value are strings."`
-	NetworkTags        []string                    `json:"network_tags,omitempty" jsonschema:"description=A list of network tags to be attached to the instance"`
-	ServiceAccounts    []*computepb.ServiceAccount `json:"service_accounts,omitempty" jsonschema:"description=A list of service accounts to be attached to the instance"`
-	SourceSnapshot     string                      `json:"source_snapshot,omitempty" jsonschema:"description=The source snapshot to create this disk."`
-	SSHKeys            []string                    `json:"ssh_keys,omitempty" jsonschema:"description=A list of SSH keys to be added to the instance. The format is USERNAME:SSH_KEY"`
-	EnableBootDebug    *bool                       `json:"enable_boot_debug,omitempty" jsonschema:"description=Enable boot debug on the VM."`
-	DisableUpdates     *bool                       `json:"disable_updates,omitempty" jsonschema:"description=Disable OS updates on boot."`
+	ProvisioningModel   string                      `json:"provisioning_model,omitempty" jsonschema:"description=Compute Engine provisioning model. Supported values are STANDARD and SPOT."`
+	FallbackToStandard  bool                        `json:"fallback_to_standard,omitempty" jsonschema:"description=Retry with STANDARD only when SPOT allocation fails because zonal capacity is unavailable."`
+	DiskSize            int64                       `json:"disksize,omitempty" jsonschema:"description=The size of the root disk in GB. Default is 127 GB."`
+	DiskType            string                      `json:"disktype,omitempty" jsonschema:"description=The type of the disk. Default is pd-standard."`
+	DisplayDevice       bool                        `json:"display_device,omitempty" jsonschema:"description=Enable the display device on the VM."`
+	NetworkID           string                      `json:"network_id,omitempty" jsonschema:"description=The name of the network attached to the instance."`
+	SubnetworkID        string                      `json:"subnetwork_id,omitempty" jsonschema:"description=The name of the subnetwork attached to the instance."`
+	NicType             string                      `json:"nic_type,omitempty" jsonschema:"description=The type of the network interface card. Default is VIRTIO_NET."`
+	CustomLabels        map[string]string           `json:"custom_labels,omitempty" jsonschema:"description=Custom labels to apply to the instance. Each label is a key-value pair where both key and value are strings."`
+	NetworkTags         []string                    `json:"network_tags,omitempty" jsonschema:"description=A list of network tags to be attached to the instance"`
+	ServiceAccounts     []*computepb.ServiceAccount `json:"service_accounts,omitempty" jsonschema:"description=A list of service accounts to be attached to the instance"`
+	SourceSnapshot      string                      `json:"source_snapshot,omitempty" jsonschema:"description=The source snapshot to create this disk."`
+	SSHKeys             []string                    `json:"ssh_keys,omitempty" jsonschema:"description=A list of SSH keys to be added to the instance. The format is USERNAME:SSH_KEY"`
+	EnableBootDebug     *bool                       `json:"enable_boot_debug,omitempty" jsonschema:"description=Enable boot debug on the VM."`
+	DisableUpdates      *bool                       `json:"disable_updates,omitempty" jsonschema:"description=Disable OS updates on boot."`
+	UseGCEStartupScript bool                        `json:"use_gce_startup_script,omitempty" jsonschema:"description=Run the Linux runner installer directly through the GCE guest-agent startup script. This requires a pre-baked image with the runner user and all dependencies already present."`
 	// Shielded VM options
 	EnableSecureBoot          bool `json:"enable_secure_boot,omitempty" jsonschema:"description=Enable Secure Boot on the VM. Requires a Shielded VM compatible image."`
 	EnableVTPM                bool `json:"enable_vtpm,omitempty" jsonschema:"description=Enable virtual Trusted Platform Module (vTPM) on the VM."`
@@ -233,30 +236,34 @@ func GetRunnerSpecFromBootstrapParams(cfg *config.Config, data params.BootstrapI
 	if spec.RegionalPlacement != nil && !cfg.EnableRegionalPlacement {
 		return nil, fmt.Errorf("regional_placement requires enable_regional_placement in the provider config")
 	}
+	if spec.UseGCEStartupScript && data.OSType != params.Linux {
+		return nil, fmt.Errorf("use_gce_startup_script requires a Linux runner")
+	}
 
 	return spec, nil
 }
 
 type RunnerSpec struct {
-	ProvisioningModel  string
-	FallbackToStandard bool
-	Zone               string
-	Tools              params.RunnerApplicationDownload
-	BootstrapParams    params.BootstrapInstance
-	NetworkID          string
-	SubnetworkID       string
-	ControllerID       string
-	NicType            string
-	DisplayDevice      bool
-	DiskSize           int64
-	DiskType           string
-	CustomLabels       map[string]string
-	NetworkTags        []string
-	ServiceAccounts    []*computepb.ServiceAccount
-	SourceSnapshot     string
-	SSHKeys            string
-	EnableBootDebug    bool
-	DisableUpdates     bool
+	ProvisioningModel   string
+	FallbackToStandard  bool
+	Zone                string
+	Tools               params.RunnerApplicationDownload
+	BootstrapParams     params.BootstrapInstance
+	NetworkID           string
+	SubnetworkID        string
+	ControllerID        string
+	NicType             string
+	DisplayDevice       bool
+	DiskSize            int64
+	DiskType            string
+	CustomLabels        map[string]string
+	NetworkTags         []string
+	ServiceAccounts     []*computepb.ServiceAccount
+	SourceSnapshot      string
+	SSHKeys             string
+	EnableBootDebug     bool
+	DisableUpdates      bool
+	UseGCEStartupScript bool
 	// Shielded VM options
 	EnableSecureBoot          bool
 	EnableVTPM                bool
@@ -314,6 +321,9 @@ func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
 	if extraSpecs.DisableUpdates != nil {
 		r.DisableUpdates = *extraSpecs.DisableUpdates
 	}
+	if extraSpecs.UseGCEStartupScript {
+		r.UseGCEStartupScript = true
+	}
 	if extraSpecs.EnableSecureBoot {
 		r.EnableSecureBoot = extraSpecs.EnableSecureBoot
 	}
@@ -363,6 +373,17 @@ func (r RunnerSpec) ComposeUserData() (string, error) {
 	bootstrapParams := r.BootstrapParams
 	bootstrapParams.UserDataOptions.EnableBootDebug = r.EnableBootDebug
 	bootstrapParams.UserDataOptions.DisableUpdatesOnBoot = r.DisableUpdates
+	if r.UseGCEStartupScript {
+		if bootstrapParams.OSType != params.Linux {
+			return "", fmt.Errorf("use_gce_startup_script requires a Linux runner")
+		}
+		installScript, err := DefaultRunnerInstallScriptFunc(bootstrapParams, r.Tools, bootstrapParams.Name)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate runner install script: %w", err)
+		}
+		encodedScript := base64.StdEncoding.EncodeToString(installScript)
+		return fmt.Sprintf("#!/bin/bash\nset -euo pipefail\nprintf '%%s' '%s' | base64 --decode | su -l %s -c 'bash -s'\n", encodedScript, defaults.DefaultUser), nil
+	}
 
 	switch r.BootstrapParams.OSType {
 	case params.Linux:

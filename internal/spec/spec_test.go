@@ -53,6 +53,7 @@ func TestJsonSchemaValidation(t *testing.T) {
 				"ssh_keys": ["ssh-key", "ssh-key2"],
 				"enable_boot_debug": true,
 				"disable_updates": false,
+				"use_gce_startup_script": true,
 				"runner_install_template": "IyEvYmluL2Jhc2gKZWNobyBJbnN0YWxsaW5nIHJ1bm5lci4uLg==", "pre_install_scripts": {"setup.sh": "IyEvYmluL2Jhc2gKZWNobyBTZXR1cCBzY3JpcHQuLi4="}, "extra_context": {"key": "value"}
 				}`),
 			errString: "",
@@ -154,6 +155,13 @@ func TestJsonSchemaValidation(t *testing.T) {
 			name: "Specs just with disable_updates false",
 			input: json.RawMessage(`{
 				"disable_updates": false
+			}`),
+			errString: "",
+		},
+		{
+			name: "Specs just with use_gce_startup_script",
+			input: json.RawMessage(`{
+				"use_gce_startup_script": true
 			}`),
 			errString: "",
 		},
@@ -295,6 +303,13 @@ func TestJsonSchemaValidation(t *testing.T) {
 			errString: "schema validation failed: [disable_updates: Invalid type. Expected: boolean, given: string]",
 		},
 		{
+			name: "Invalid input for use_gce_startup_script - wrong data type",
+			input: json.RawMessage(`{
+				"use_gce_startup_script": "true"
+			}`),
+			errString: "schema validation failed: [use_gce_startup_script: Invalid type. Expected: boolean, given: string]",
+		},
+		{
 			name: "Invalid input for runner_install_template - wrong data type",
 			input: json.RawMessage(`{
 				"runner_install_template": 127
@@ -399,10 +414,11 @@ func TestMergeExtraSpecs(t *testing.T) {
 						Scopes: []string{"scope"},
 					},
 				},
-				SourceSnapshot:  "projects/garm-testing/global/snapshots/garm-snapshot",
-				SSHKeys:         []string{"ssh-key1", "ssh-key2"},
-				EnableBootDebug: &enable_boot_debug,
-				DisableUpdates:  proto.Bool(true),
+				SourceSnapshot:      "projects/garm-testing/global/snapshots/garm-snapshot",
+				SSHKeys:             []string{"ssh-key1", "ssh-key2"},
+				EnableBootDebug:     &enable_boot_debug,
+				DisableUpdates:      proto.Bool(true),
+				UseGCEStartupScript: true,
 			},
 		},
 		{
@@ -490,6 +506,7 @@ func TestMergeExtraSpecs(t *testing.T) {
 				expectedDisableUpdates = *tt.extraSpecs.DisableUpdates
 			}
 			assert.Equal(t, expectedDisableUpdates, spec.DisableUpdates, "expected DisableUpdates to be %t, got %t", expectedDisableUpdates, spec.DisableUpdates)
+			assert.Equal(t, tt.extraSpecs.UseGCEStartupScript, spec.UseGCEStartupScript)
 		})
 	}
 }

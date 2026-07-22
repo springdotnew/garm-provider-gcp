@@ -193,6 +193,10 @@ To this end, this provider supports the following extra specs schema:
             "type": "boolean",
             "description": "Disable OS updates on boot."
         },
+        "use_gce_startup_script": {
+            "type": "boolean",
+            "description": "Run the Linux runner installer directly through the GCE guest-agent startup script. This requires a pre-baked image with the runner user and all dependencies already present."
+        },
         "enable_secure_boot": {
             "type": "boolean",
             "desctipyion": "Enable Secure Boot on the VM. Requires a Shielded VM compatible image."
@@ -278,6 +282,8 @@ An example of extra specs json would look like this:
 **NOTE**: The `custom_labels` and `network_tags` must meet the [GCP requirements for labels](https://cloud.google.com/compute/docs/labeling-resources#requirements) and the [GCP requirements for network tags](https://cloud.google.com/vpc/docs/add-remove-network-tags#restrictions)!
 
 **NOTE**: The `ssh_keys` add the option to [connect to an instance via SSH](https://cloud.google.com/compute/docs/instances/ssh) (either Linux or Windows). After you added the key as `username:ssh_public_key`, you can use the `private_key` to connect to the Linux/Windows instance via `ssh -i private_rsa username@instance_ip`. For **Windows** instances, the provider installs on the instance `google-compute-engine-ssh` and `enables ssh` if a `ssh_key` is added to extra-specs.
+
+**NOTE**: The `use_gce_startup_script` extra spec bypasses cloud-init and sends the existing Linux runner installer to the GCE guest agent as a `startup-script`. Use it only with a pre-baked image that already contains the `runner` user, its passwordless sudo policy, the GitHub Actions runner files, and every runtime dependency. It is rejected for Windows runners and defaults to `false`.
 
 **NOTE**: The `regional_placement` extra spec lets Compute Engine pick one of the allowed zones for each runner, using a [regional bulk insert](https://cloud.google.com/compute/docs/instances/multiple/create-in-bulk). It requires `enable_regional_placement = true` in the provider config and cannot be combined with `display_device` or `source_snapshot`. Runners created this way get a `zone/instance-name` provider ID, so the provider can manage them in whichever zone they landed in.
 

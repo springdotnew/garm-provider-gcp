@@ -36,6 +36,7 @@ import (
 
 const (
 	linuxUserData        string = "user-data"
+	linuxStartupScript   string = "startup-script"
 	windowsStartupScript string = "sysprep-specialize-script-ps1"
 	accessConfigType     string = "ONE_TO_ONE_NAT"
 )
@@ -174,7 +175,7 @@ func (g *GcpCli) CreateInstance(ctx context.Context, spec *spec.RunnerSpec) (*co
 		Metadata: &computepb.Metadata{
 			Items: []*computepb.Items{
 				{
-					Key:   proto.String(selectStartupScript(spec.BootstrapParams.OSType)),
+					Key:   proto.String(selectStartupScript(spec.BootstrapParams.OSType, spec.UseGCEStartupScript)),
 					Value: proto.String(udata),
 				},
 				{
@@ -411,11 +412,14 @@ func (g *GcpCli) StartInstance(ctx context.Context, instance string) error {
 	return nil
 }
 
-func selectStartupScript(osType params.OSType) string {
+func selectStartupScript(osType params.OSType, useGCEStartupScript bool) string {
 	switch osType {
 	case params.Windows:
 		return windowsStartupScript
 	case params.Linux:
+		if useGCEStartupScript {
+			return linuxStartupScript
+		}
 		return linuxUserData
 	default:
 		return ""
