@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	compute "cloud.google.com/go/compute/apiv1"
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"github.com/cloudbase/garm-provider-gcp/internal/spec"
 	"github.com/cloudbase/garm-provider-gcp/internal/util"
@@ -38,6 +39,7 @@ const (
 
 	ambiguousCreateLookupTimeout  = 30 * time.Second
 	ambiguousCreateLookupInterval = time.Second
+	transientCreateRetryDelay     = 250 * time.Millisecond
 )
 
 func (g *GcpCli) createRegionalInstance(ctx context.Context, runnerSpec *spec.RunnerSpec, inst *computepb.Instance) (*computepb.Instance, error) {
@@ -97,7 +99,7 @@ func (g *GcpCli) attemptRegionalCreateWithZoneFallback(ctx context.Context, runn
 
 func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.RunnerSpec, inst *computepb.Instance, lookupZones []string) (*computepb.Instance, error) {
 	req := buildRegionalInsertRequest(g.cfg.ProjectId, runnerSpec, inst)
-	op, err := g.regionClient.BulkInsert(ctx, req)
+	op, err := g.bulkInsertRegional(ctx, req)
 	if err == nil {
 		err = WaitOp(op, ctx)
 	}
@@ -145,6 +147,25 @@ func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.Run
 		return nil, fmt.Errorf("regional create returned a mismatched instance: %w", err)
 	}
 	return created, nil
+}
+
+func (g *GcpCli) bulkInsertRegional(ctx context.Context, req *computepb.BulkInsertRegionInstanceRequest) (*compute.Operation, error) {
+	op, err := g.regionClient.BulkInsert(ctx, req)
+	if !isTransientRegionalCreateError(err) {
+		return op, err
+	}
+
+	timer := time.NewTimer(transientCreateRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-timer.C:
+	}
+
+	// Reuse the request ID. GCP treats it as an idempotency key, so retrying a
+	// request whose response was lost cannot create the same runner twice.
+	return g.regionClient.BulkInsert(ctx, req)
 }
 
 func buildRegionalInsertRequest(project string, runnerSpec *spec.RunnerSpec, inst *computepb.Instance) *computepb.BulkInsertRegionInstanceRequest {
@@ -374,6 +395,35 @@ func isAmbiguousCreateError(err error) bool {
 		}
 	}
 	return false
+}
+
+func isTransientRegionalCreateError(err error) bool {
+	if err == nil || isAmbiguousCreateError(err) {
+		return false
+	}
+
+	code := 0
+	var asApiErr *apierror.APIError
+	if errors.As(err, &asApiErr) {
+		if asApiErr.Reason() != "" {
+			return false
+		}
+		code = asApiErr.HTTPCode()
+	}
+	var asGoogleErr *googleapi.Error
+	if errors.As(err, &asGoogleErr) {
+		if len(asGoogleErr.Errors) != 0 {
+			return false
+		}
+		code = asGoogleErr.Code
+	}
+
+	switch code {
+	case 500, 502, 503, 504:
+		return true
+	default:
+		return false
+	}
 }
 
 func isRegionalCapacityError(err error) bool {

@@ -269,6 +269,52 @@ func TestBuildRegionalInsertRequestWithSpotProvisioning(t *testing.T) {
 	require.Equal(t, "TERMINATE", scheduling.GetOnHostMaintenance())
 }
 
+func TestBulkInsertRegionalRetriesTransientInternalError(t *testing.T) {
+	ctx := context.Background()
+	mockRegionalClient := new(MockRegionalGcpClient)
+	gcpCli := &GcpCli{regionClient: mockRegionalClient}
+	req := &computepb.BulkInsertRegionInstanceRequest{RequestId: proto.String("stable-request-id")}
+	internalErr := &googleapi.Error{Code: 503, Message: "Internal error. Please try again."}
+	createdOp := &compute.Operation{}
+
+	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(actual *computepb.BulkInsertRegionInstanceRequest) bool {
+		return actual.GetRequestId() == "stable-request-id"
+	}), mock.Anything).Return((*compute.Operation)(nil), internalErr).Once()
+	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(actual *computepb.BulkInsertRegionInstanceRequest) bool {
+		return actual.GetRequestId() == "stable-request-id"
+	}), mock.Anything).Return(createdOp, nil).Once()
+
+	result, err := gcpCli.bulkInsertRegional(ctx, req)
+	require.NoError(t, err)
+	require.Same(t, createdOp, result)
+	mockRegionalClient.AssertExpectations(t)
+}
+
+func TestIsTransientRegionalCreateError(t *testing.T) {
+	wrappedInternal, ok := apierror.FromError(&googleapi.Error{Code: 503, Message: "Internal error"})
+	require.True(t, ok)
+
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{name: "Internal503", err: &googleapi.Error{Code: 503, Message: "Internal error"}, expected: true},
+		{name: "WrappedInternal503", err: wrappedInternal, expected: true},
+		{name: "Backend500", err: &googleapi.Error{Code: 500, Message: "Backend error"}, expected: true},
+		{name: "Capacity503", err: &googleapi.Error{Code: 503, Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}}}},
+		{name: "Quota503", err: &googleapi.Error{Code: 503, Errors: []googleapi.ErrorItem{{Reason: "QUOTA_EXCEEDED"}}}},
+		{name: "Permission403", err: &googleapi.Error{Code: 403, Message: "permission denied"}},
+		{name: "TransportAmbiguity", err: errors.New("unexpected EOF")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, isTransientRegionalCreateError(tt.err))
+		})
+	}
+}
+
 func TestCreateRegionalInstanceSpotFallback(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockGcpClient)
