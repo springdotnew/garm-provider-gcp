@@ -249,6 +249,10 @@ To this end, this provider supports the following extra specs schema:
         "regional_fallback_to_standard": {
             "type": "boolean",
             "description": "Fall back to the STANDARD provisioning model after a regional SPOT capacity failure."
+        },
+        "regional_zone_fallback": {
+            "type": "boolean",
+            "description": "Try regional placement zones in order after recognized capacity failures."
         }
     },
     "additionalProperties": false
@@ -286,6 +290,8 @@ An example of extra specs json would look like this:
 **NOTE**: The `regional_provisioning_model` extra spec sets the [provisioning model](https://cloud.google.com/compute/docs/instances/spot) for a `regional_placement` pool. Setting it to `SPOT` creates spot runners, which cost less but can be preempted at any time. Preempted runners are terminated and deleted, and GARM replaces them as needed.
 
 **NOTE**: The `regional_fallback_to_standard` extra spec retries a failed `SPOT` create with the `STANDARD` provisioning model, when the failure was caused by spot capacity running out in all allowed zones. It requires `regional_provisioning_model` to be `SPOT`.
+
+**NOTE**: The `regional_zone_fallback` extra spec tries each `regional_placement` zone in configured order and advances only after a recognized capacity failure. It requires at least two zones. Quota, permission, invalid configuration, and ambiguous create errors stop immediately instead of risking duplicate runners or masking operational failures. When combined with `regional_fallback_to_standard`, all configured zones are tried for `SPOT` before they are tried for `STANDARD`.
 
 **NOTE**: Existing zonal pools can use `provisioning_model: "SPOT"` with `fallback_to_standard: true`. That fallback is also restricted to recognized capacity errors; quota, permission, and invalid configuration errors are returned without a STANDARD retry. These legacy zonal fields are separate from the `regional_*` fields above and cannot be combined with `regional_placement` — regional pools must use `regional_provisioning_model` and `regional_fallback_to_standard`.
 

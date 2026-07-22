@@ -279,6 +279,187 @@ func TestCreateRegionalInstanceSpotFallback(t *testing.T) {
 	mockRegionalClient.AssertExpectations(t)
 }
 
+func TestCreateRegionalInstanceFallsBackToNextZoneOnCapacityError(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(MockGcpClient)
+	mockRegionalClient := new(MockRegionalGcpClient)
+	WaitOp = func(op *compute.Operation, ctx context.Context, opts ...gax.CallOption) error {
+		return nil
+	}
+	gcpCli := &GcpCli{
+		cfg: &config.Config{
+			ProjectId:               "my-project",
+			EnableRegionalPlacement: true,
+		},
+		client:       mockClient,
+		regionClient: mockRegionalClient,
+	}
+
+	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).
+		Return((*computepb.Instance)(nil), notFound).Times(5)
+	created := &computepb.Instance{
+		Name: proto.String("garm-instance"),
+		Zone: proto.String("zones/us-central1-c"),
+		Labels: map[string]string{
+			"garmpoolid":                "garm-pool",
+			util.RegionalPlacementLabel: "true",
+		},
+	}
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).Return(created, nil).Once()
+	capacityErr := &googleapi.Error{
+		Code:   503,
+		Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}},
+	}
+	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(req *computepb.BulkInsertRegionInstanceRequest) bool {
+		zones := req.BulkInsertInstanceResourceResource.LocationPolicy.Zones
+		return len(zones) == 1 && zones[0].GetZone() == "zones/us-central1-a"
+	}), mock.Anything).Return((*compute.Operation)(nil), capacityErr).Once()
+	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(req *computepb.BulkInsertRegionInstanceRequest) bool {
+		zones := req.BulkInsertInstanceResourceResource.LocationPolicy.Zones
+		return len(zones) == 1 && zones[0].GetZone() == "zones/us-central1-c"
+	}), mock.Anything).Return(&compute.Operation{}, nil).Once()
+
+	runnerSpec := &spec.RunnerSpec{
+		RegionalPlacement: &spec.RegionalPlacement{
+			Zones: []string{"us-central1-a", "us-central1-c"},
+		},
+		RegionalZoneFallback: true,
+		BootstrapParams: params.BootstrapInstance{
+			Name:   "garm-instance",
+			Flavor: "n1-standard-1",
+		},
+	}
+	instance := &computepb.Instance{
+		Name:   proto.String("garm-instance"),
+		Labels: map[string]string{"garmpoolid": "garm-pool"},
+	}
+
+	result, err := gcpCli.createRegionalInstance(ctx, runnerSpec, instance)
+	require.NoError(t, err)
+	require.Equal(t, created, result)
+	mockClient.AssertExpectations(t)
+	mockRegionalClient.AssertExpectations(t)
+}
+
+func TestCreateRegionalInstanceDoesNotTryNextZoneForNonCapacityError(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(MockGcpClient)
+	mockRegionalClient := new(MockRegionalGcpClient)
+	gcpCli := &GcpCli{
+		cfg: &config.Config{
+			ProjectId:               "my-project",
+			EnableRegionalPlacement: true,
+		},
+		client:       mockClient,
+		regionClient: mockRegionalClient,
+	}
+
+	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).
+		Return((*computepb.Instance)(nil), notFound).Times(4)
+	quotaErr := errors.New("QUOTA_EXCEEDED")
+	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(req *computepb.BulkInsertRegionInstanceRequest) bool {
+		zones := req.BulkInsertInstanceResourceResource.LocationPolicy.Zones
+		return len(zones) == 1 && zones[0].GetZone() == "zones/us-central1-a"
+	}), mock.Anything).Return((*compute.Operation)(nil), quotaErr).Once()
+
+	runnerSpec := &spec.RunnerSpec{
+		RegionalPlacement: &spec.RegionalPlacement{
+			Zones: []string{"us-central1-a", "us-central1-c"},
+		},
+		RegionalZoneFallback: true,
+		BootstrapParams: params.BootstrapInstance{
+			Name:   "garm-instance",
+			Flavor: "n1-standard-1",
+		},
+	}
+	instance := &computepb.Instance{
+		Name:   proto.String("garm-instance"),
+		Labels: map[string]string{"garmpoolid": "garm-pool"},
+	}
+
+	_, err := gcpCli.createRegionalInstance(ctx, runnerSpec, instance)
+	require.ErrorIs(t, err, quotaErr)
+	mockRegionalClient.AssertNumberOfCalls(t, "BulkInsert", 1)
+	mockClient.AssertExpectations(t)
+	mockRegionalClient.AssertExpectations(t)
+}
+
+func TestCreateRegionalInstanceTriesAllSpotZonesBeforeStandardFallback(t *testing.T) {
+	ctx := context.Background()
+	mockClient := new(MockGcpClient)
+	mockRegionalClient := new(MockRegionalGcpClient)
+	WaitOp = func(op *compute.Operation, ctx context.Context, opts ...gax.CallOption) error {
+		return nil
+	}
+	gcpCli := &GcpCli{
+		cfg: &config.Config{
+			ProjectId:               "my-project",
+			EnableRegionalPlacement: true,
+		},
+		client:       mockClient,
+		regionClient: mockRegionalClient,
+	}
+
+	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).
+		Return((*computepb.Instance)(nil), notFound).Times(6)
+	created := &computepb.Instance{
+		Name: proto.String("garm-instance"),
+		Zone: proto.String("zones/us-central1-a"),
+		Labels: map[string]string{
+			"garmpoolid":                "garm-pool",
+			util.RegionalPlacementLabel: "true",
+		},
+	}
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).Return(created, nil).Once()
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).
+		Return((*computepb.Instance)(nil), notFound).Once()
+	capacityErr := &googleapi.Error{
+		Code:   503,
+		Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}},
+	}
+	for _, zone := range []string{"us-central1-a", "us-central1-c"} {
+		zone := zone
+		mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(req *computepb.BulkInsertRegionInstanceRequest) bool {
+			zones := req.BulkInsertInstanceResourceResource.LocationPolicy.Zones
+			return len(zones) == 1 &&
+				zones[0].GetZone() == "zones/"+zone &&
+				req.BulkInsertInstanceResourceResource.InstanceProperties.Scheduling.GetProvisioningModel() == "SPOT"
+		}), mock.Anything).Return((*compute.Operation)(nil), capacityErr).Once()
+	}
+	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(req *computepb.BulkInsertRegionInstanceRequest) bool {
+		zones := req.BulkInsertInstanceResourceResource.LocationPolicy.Zones
+		return len(zones) == 1 &&
+			zones[0].GetZone() == "zones/us-central1-a" &&
+			req.BulkInsertInstanceResourceResource.InstanceProperties.Scheduling == nil
+	}), mock.Anything).Return(&compute.Operation{}, nil).Once()
+
+	runnerSpec := &spec.RunnerSpec{
+		RegionalPlacement: &spec.RegionalPlacement{
+			Zones: []string{"us-central1-a", "us-central1-c"},
+		},
+		RegionalProvisioningModel:  "SPOT",
+		RegionalFallbackToStandard: true,
+		RegionalZoneFallback:       true,
+		BootstrapParams: params.BootstrapInstance{
+			Name:   "garm-instance",
+			Flavor: "n1-standard-1",
+		},
+	}
+	instance := &computepb.Instance{
+		Name:   proto.String("garm-instance"),
+		Labels: map[string]string{"garmpoolid": "garm-pool"},
+	}
+
+	result, err := gcpCli.createRegionalInstance(ctx, runnerSpec, instance)
+	require.NoError(t, err)
+	require.Equal(t, created, result)
+	mockClient.AssertExpectations(t)
+	mockRegionalClient.AssertExpectations(t)
+}
+
 func TestCreateRegionalInstanceReconcilesAmbiguousError(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockGcpClient)

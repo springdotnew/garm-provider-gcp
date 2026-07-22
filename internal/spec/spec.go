@@ -166,6 +166,14 @@ func (e *extraSpecs) Validate() error {
 	if e.RegionalFallbackToStandard && e.RegionalProvisioningModel != "SPOT" {
 		return fmt.Errorf("regional_fallback_to_standard requires regional_provisioning_model SPOT")
 	}
+	if e.RegionalZoneFallback {
+		if e.RegionalPlacement == nil {
+			return fmt.Errorf("regional_zone_fallback requires regional_placement")
+		}
+		if len(e.RegionalPlacement.Zones) < 2 {
+			return fmt.Errorf("regional_zone_fallback requires at least two regional_placement zones")
+		}
+	}
 	return nil
 }
 
@@ -196,6 +204,7 @@ type extraSpecs struct {
 	InstanceFlexibility        *InstanceFlexibility `json:"instance_flexibility,omitempty" jsonschema:"description=Optional ranked machine types for regional placement."`
 	RegionalProvisioningModel  string               `json:"regional_provisioning_model,omitempty" jsonschema:"description=Provisioning model for regional placement. Supported values are STANDARD and SPOT."`
 	RegionalFallbackToStandard bool                 `json:"regional_fallback_to_standard,omitempty" jsonschema:"description=Fall back to the STANDARD provisioning model after a regional SPOT capacity failure."`
+	RegionalZoneFallback       bool                 `json:"regional_zone_fallback,omitempty" jsonschema:"description=Try regional placement zones in order after recognized capacity failures."`
 	// The Cloudconfig struct from common package
 	cloudconfig.CloudConfigSpec
 }
@@ -268,6 +277,7 @@ type RunnerSpec struct {
 	InstanceFlexibility        *InstanceFlexibility
 	RegionalProvisioningModel  string
 	RegionalFallbackToStandard bool
+	RegionalZoneFallback       bool
 }
 
 func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
@@ -337,6 +347,9 @@ func (r *RunnerSpec) MergeExtraSpecs(extraSpecs *extraSpecs) {
 	}
 	if extraSpecs.RegionalFallbackToStandard {
 		r.RegionalFallbackToStandard = extraSpecs.RegionalFallbackToStandard
+	}
+	if extraSpecs.RegionalZoneFallback {
+		r.RegionalZoneFallback = extraSpecs.RegionalZoneFallback
 	}
 }
 

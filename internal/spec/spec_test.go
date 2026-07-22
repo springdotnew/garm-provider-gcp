@@ -225,6 +225,16 @@ func TestJsonSchemaValidation(t *testing.T) {
 			errString: "",
 		},
 		{
+			name: "Specs with regional_placement and regional_zone_fallback",
+			input: json.RawMessage(`{
+				"regional_placement": {
+					"zones": ["us-central1-a", "us-central1-b"]
+				},
+				"regional_zone_fallback": true
+			}`),
+			errString: "",
+		},
+		{
 			name: "Invalid input for display_device - wrong data type",
 			input: json.RawMessage(`{
 				"display_device": "true"
@@ -760,6 +770,31 @@ func TestExtraSpecsValidate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "regional_fallback_to_standard requires regional_provisioning_model SPOT",
+		},
+		{
+			name: "Valid regional zone fallback",
+			specs: &extraSpecs{
+				RegionalPlacement:    &RegionalPlacement{Zones: []string{"us-central1-a", "us-central1-b"}},
+				RegionalZoneFallback: true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "Regional zone fallback without regional placement",
+			specs: &extraSpecs{
+				RegionalZoneFallback: true,
+			},
+			wantErr: true,
+			errMsg:  "regional_zone_fallback requires regional_placement",
+		},
+		{
+			name: "Regional zone fallback with one zone",
+			specs: &extraSpecs{
+				RegionalPlacement:    &RegionalPlacement{Zones: []string{"us-central1-a"}},
+				RegionalZoneFallback: true,
+			},
+			wantErr: true,
+			errMsg:  "regional_zone_fallback requires at least two regional_placement zones",
 		},
 		{
 			name: "Invalid provisioning model", specs: &extraSpecs{ProvisioningModel: "PREEMPTIBLE"},

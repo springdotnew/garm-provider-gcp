@@ -55,7 +55,7 @@ func (g *GcpCli) createRegionalInstance(ctx context.Context, runnerSpec *spec.Ru
 		return existing, nil
 	}
 
-	created, err := g.attemptRegionalCreate(ctx, runnerSpec, inst)
+	created, err := g.attemptRegionalCreateWithZoneFallback(ctx, runnerSpec, inst)
 	if err == nil {
 		return created, nil
 	}
@@ -66,10 +66,35 @@ func (g *GcpCli) createRegionalInstance(ctx context.Context, runnerSpec *spec.Ru
 	// the STANDARD provisioning model.
 	standardSpec := *runnerSpec
 	standardSpec.RegionalProvisioningModel = "STANDARD"
-	return g.attemptRegionalCreate(ctx, &standardSpec, inst)
+	return g.attemptRegionalCreateWithZoneFallback(ctx, &standardSpec, inst)
 }
 
-func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.RunnerSpec, inst *computepb.Instance) (*computepb.Instance, error) {
+func (g *GcpCli) attemptRegionalCreateWithZoneFallback(ctx context.Context, runnerSpec *spec.RunnerSpec, inst *computepb.Instance) (*computepb.Instance, error) {
+	lookupZones := runnerSpec.RegionalPlacement.Zones
+	if !runnerSpec.RegionalZoneFallback {
+		return g.attemptRegionalCreate(ctx, runnerSpec, inst, lookupZones)
+	}
+
+	var capacityErr error
+	for _, zone := range lookupZones {
+		zoneSpec := *runnerSpec
+		zonePlacement := *runnerSpec.RegionalPlacement
+		zonePlacement.Zones = []string{zone}
+		zoneSpec.RegionalPlacement = &zonePlacement
+
+		created, err := g.attemptRegionalCreate(ctx, &zoneSpec, inst, lookupZones)
+		if err == nil {
+			return created, nil
+		}
+		if !isRegionalCapacityError(err) {
+			return nil, err
+		}
+		capacityErr = err
+	}
+	return nil, capacityErr
+}
+
+func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.RunnerSpec, inst *computepb.Instance, lookupZones []string) (*computepb.Instance, error) {
 	req := buildRegionalInsertRequest(g.cfg.ProjectId, runnerSpec, inst)
 	op, err := g.regionClient.BulkInsert(ctx, req)
 	if err == nil {
@@ -79,7 +104,7 @@ func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.Run
 		if !isAmbiguousCreateError(err) {
 			// The instance may exist despite the error. Return it if it does,
 			// so a fallback retry cannot create a duplicate.
-			created, lookupErr := g.findInstanceInZones(ctx, inst.GetName(), runnerSpec.RegionalPlacement.Zones)
+			created, lookupErr := g.findInstanceInZones(ctx, inst.GetName(), lookupZones)
 			if lookupErr != nil {
 				return nil, fmt.Errorf("failed to reconcile regional create error %w: %w", err, lookupErr)
 			}
@@ -95,7 +120,7 @@ func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.Run
 		// before reporting the error, so we don't leak a running instance.
 		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ambiguousCreateLookupTimeout)
 		defer cancel()
-		created, lookupErr := g.waitForInstanceInZones(lookupCtx, inst.GetName(), runnerSpec.RegionalPlacement.Zones)
+		created, lookupErr := g.waitForInstanceInZones(lookupCtx, inst.GetName(), lookupZones)
 		if lookupErr != nil {
 			return nil, fmt.Errorf("failed to reconcile regional create error %w: %w", err, lookupErr)
 		}
@@ -108,7 +133,7 @@ func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.Run
 		return created, nil
 	}
 
-	created, err := g.findInstanceInZones(ctx, inst.GetName(), runnerSpec.RegionalPlacement.Zones)
+	created, err := g.findInstanceInZones(ctx, inst.GetName(), lookupZones)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve created regional instance %s: %w", inst.GetName(), err)
 	}
