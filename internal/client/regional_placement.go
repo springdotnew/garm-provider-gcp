@@ -104,6 +104,12 @@ func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.Run
 		err = WaitOp(op, ctx)
 	}
 	if err != nil {
+		if atomicRegionalCapacityFailure(req, err) {
+			// With count=1 and minCount=1, GCP rolls back any partial creation
+			// before returning a capacity failure. There is no instance to
+			// reconcile, so the next configured zone can be tried immediately.
+			return nil, fmt.Errorf("failed to create regional instance: %w", err)
+		}
 		if !isAmbiguousCreateError(err) {
 			// The instance may exist despite the error. Return it if it does,
 			// so a fallback retry cannot create a duplicate.
@@ -147,6 +153,14 @@ func (g *GcpCli) attemptRegionalCreate(ctx context.Context, runnerSpec *spec.Run
 		return nil, fmt.Errorf("regional create returned a mismatched instance: %w", err)
 	}
 	return created, nil
+}
+
+func atomicRegionalCapacityFailure(req *computepb.BulkInsertRegionInstanceRequest, err error) bool {
+	if !isRegionalCapacityError(err) {
+		return false
+	}
+	resource := req.GetBulkInsertInstanceResourceResource()
+	return resource.GetCount() == 1 && resource.GetMinCount() == 1
 }
 
 func (g *GcpCli) bulkInsertRegional(ctx context.Context, req *computepb.BulkInsertRegionInstanceRequest) (*compute.Operation, error) {

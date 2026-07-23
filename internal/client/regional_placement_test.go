@@ -349,7 +349,7 @@ func TestCreateRegionalInstanceSpotFallback(t *testing.T) {
 	}
 
 	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
-	mockClient.On("Get", ctx, mock.Anything, mock.Anything).Return((*computepb.Instance)(nil), notFound).Twice()
+	mockClient.On("Get", ctx, mock.Anything, mock.Anything).Return((*computepb.Instance)(nil), notFound).Once()
 	created := &computepb.Instance{
 		Name: proto.String("garm-instance"),
 		Zone: proto.String("zones/us-central1-a"),
@@ -413,7 +413,7 @@ func TestCreateRegionalInstanceFallsBackToNextZoneOnCapacityError(t *testing.T) 
 
 	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
 	mockClient.On("Get", ctx, mock.Anything, mock.Anything).
-		Return((*computepb.Instance)(nil), notFound).Times(5)
+		Return((*computepb.Instance)(nil), notFound).Times(3)
 	created := &computepb.Instance{
 		Name: proto.String("garm-instance"),
 		Zone: proto.String("zones/us-central1-c"),
@@ -520,7 +520,7 @@ func TestCreateRegionalInstanceTriesAllSpotZonesBeforeStandardFallback(t *testin
 
 	notFound, _ := apierror.FromError(&googleapi.Error{Code: 404, Message: "not found"})
 	mockClient.On("Get", ctx, mock.Anything, mock.Anything).
-		Return((*computepb.Instance)(nil), notFound).Times(6)
+		Return((*computepb.Instance)(nil), notFound).Times(3)
 	created := &computepb.Instance{
 		Name: proto.String("garm-instance"),
 		Zone: proto.String("zones/us-central1-a"),
@@ -530,8 +530,6 @@ func TestCreateRegionalInstanceTriesAllSpotZonesBeforeStandardFallback(t *testin
 		},
 	}
 	mockClient.On("Get", ctx, mock.Anything, mock.Anything).Return(created, nil).Once()
-	mockClient.On("Get", ctx, mock.Anything, mock.Anything).
-		Return((*computepb.Instance)(nil), notFound).Once()
 	capacityErr := &googleapi.Error{
 		Code:   503,
 		Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}},
@@ -852,6 +850,38 @@ func TestIsRegionalCapacityError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.expected, isRegionalCapacityError(tt.err))
+		})
+	}
+}
+
+func TestAtomicRegionalCapacityFailure(t *testing.T) {
+	capacityErr := &googleapi.Error{
+		Code:   503,
+		Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}},
+	}
+	nonCapacityErr := errors.New("QUOTA_EXCEEDED")
+
+	tests := []struct {
+		name     string
+		count    int64
+		minCount int64
+		err      error
+		expected bool
+	}{
+		{name: "AtomicCapacityFailure", count: 1, minCount: 1, err: capacityErr, expected: true},
+		{name: "PartialBulkRequest", count: 2, minCount: 1, err: capacityErr, expected: false},
+		{name: "MissingMinimum", count: 1, minCount: 0, err: capacityErr, expected: false},
+		{name: "NonCapacityFailure", count: 1, minCount: 1, err: nonCapacityErr, expected: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &computepb.BulkInsertRegionInstanceRequest{
+				BulkInsertInstanceResourceResource: &computepb.BulkInsertInstanceResource{
+					Count:    proto.Int64(tt.count),
+					MinCount: proto.Int64(tt.minCount),
+				},
+			}
+			require.Equal(t, tt.expected, atomicRegionalCapacityFailure(req, tt.err))
 		})
 	}
 }
