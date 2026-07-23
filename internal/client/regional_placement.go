@@ -403,27 +403,35 @@ func isTransientRegionalCreateError(err error) bool {
 	}
 
 	code := 0
+	var reasons []string
 	var asApiErr *apierror.APIError
 	if errors.As(err, &asApiErr) {
 		if asApiErr.Reason() != "" {
-			return false
+			reasons = append(reasons, asApiErr.Reason())
 		}
 		code = asApiErr.HTTPCode()
 	}
 	var asGoogleErr *googleapi.Error
 	if errors.As(err, &asGoogleErr) {
-		if len(asGoogleErr.Errors) != 0 {
-			return false
+		for _, item := range asGoogleErr.Errors {
+			if item.Reason != "" {
+				reasons = append(reasons, item.Reason)
+			}
 		}
 		code = asGoogleErr.Code
 	}
 
 	switch code {
 	case 500, 502, 503, 504:
-		return true
 	default:
 		return false
 	}
+	for _, reason := range reasons {
+		if normalizeRegionalErrorReason(reason) != "internalerror" {
+			return false
+		}
+	}
+	return true
 }
 
 func isRegionalCapacityError(err error) bool {

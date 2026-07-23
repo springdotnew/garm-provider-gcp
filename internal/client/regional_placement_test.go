@@ -274,7 +274,12 @@ func TestBulkInsertRegionalRetriesTransientInternalError(t *testing.T) {
 	mockRegionalClient := new(MockRegionalGcpClient)
 	gcpCli := &GcpCli{regionClient: mockRegionalClient}
 	req := &computepb.BulkInsertRegionInstanceRequest{RequestId: proto.String("stable-request-id")}
-	internalErr := &googleapi.Error{Code: 503, Message: "Internal error. Please try again."}
+	internalErr, ok := apierror.FromError(&googleapi.Error{
+		Code:    503,
+		Message: "Internal error. Please try again.",
+		Errors:  []googleapi.ErrorItem{{Reason: "INTERNAL_ERROR"}},
+	})
+	require.True(t, ok)
 	createdOp := &compute.Operation{}
 
 	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(actual *computepb.BulkInsertRegionInstanceRequest) bool {
@@ -293,6 +298,11 @@ func TestBulkInsertRegionalRetriesTransientInternalError(t *testing.T) {
 func TestIsTransientRegionalCreateError(t *testing.T) {
 	wrappedInternal, ok := apierror.FromError(&googleapi.Error{Code: 503, Message: "Internal error"})
 	require.True(t, ok)
+	structuredInternal, ok := apierror.FromError(&googleapi.Error{
+		Code:   503,
+		Errors: []googleapi.ErrorItem{{Reason: "INTERNAL_ERROR"}},
+	})
+	require.True(t, ok)
 
 	tests := []struct {
 		name     string
@@ -301,6 +311,7 @@ func TestIsTransientRegionalCreateError(t *testing.T) {
 	}{
 		{name: "Internal503", err: &googleapi.Error{Code: 503, Message: "Internal error"}, expected: true},
 		{name: "WrappedInternal503", err: wrappedInternal, expected: true},
+		{name: "StructuredInternal503", err: structuredInternal, expected: true},
 		{name: "Backend500", err: &googleapi.Error{Code: 500, Message: "Backend error"}, expected: true},
 		{name: "Capacity503", err: &googleapi.Error{Code: 503, Errors: []googleapi.ErrorItem{{Reason: "ZONE_RESOURCE_POOL_EXHAUSTED"}}}},
 		{name: "Quota503", err: &googleapi.Error{Code: 503, Errors: []googleapi.ErrorItem{{Reason: "QUOTA_EXCEEDED"}}}},
