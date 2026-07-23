@@ -163,9 +163,11 @@ func (g *GcpCli) bulkInsertRegional(ctx context.Context, req *computepb.BulkInse
 	case <-timer.C:
 	}
 
-	// Reuse the request ID. GCP treats it as an idempotency key, so retrying a
-	// request whose response was lost cannot create the same runner twice.
-	return g.regionClient.BulkInsert(ctx, req)
+	// GCP caches terminal INTERNAL_ERROR responses by request ID. Use a fresh
+	// idempotency key for the retry; the per-instance runner name remains unique.
+	retryReq := proto.Clone(req).(*computepb.BulkInsertRegionInstanceRequest)
+	retryReq.RequestId = proto.String(uuid.NewString())
+	return g.regionClient.BulkInsert(ctx, retryReq)
 }
 
 func buildRegionalInsertRequest(project string, runnerSpec *spec.RunnerSpec, inst *computepb.Instance) *computepb.BulkInsertRegionInstanceRequest {

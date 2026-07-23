@@ -29,6 +29,7 @@ import (
 	"github.com/cloudbase/garm-provider-gcp/config"
 	"github.com/cloudbase/garm-provider-gcp/internal/spec"
 	"github.com/cloudbase/garm-provider-gcp/internal/util"
+	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/googleapis/gax-go/v2/apierror"
 	"github.com/stretchr/testify/mock"
@@ -281,17 +282,22 @@ func TestBulkInsertRegionalRetriesTransientInternalError(t *testing.T) {
 	})
 	require.True(t, ok)
 	createdOp := &compute.Operation{}
+	var retryRequestID string
 
 	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(actual *computepb.BulkInsertRegionInstanceRequest) bool {
 		return actual.GetRequestId() == "stable-request-id"
 	}), mock.Anything).Return((*compute.Operation)(nil), internalErr).Once()
 	mockRegionalClient.On("BulkInsert", ctx, mock.MatchedBy(func(actual *computepb.BulkInsertRegionInstanceRequest) bool {
-		return actual.GetRequestId() == "stable-request-id"
+		retryRequestID = actual.GetRequestId()
+		_, err := uuid.Parse(retryRequestID)
+		return err == nil && retryRequestID != "stable-request-id"
 	}), mock.Anything).Return(createdOp, nil).Once()
 
 	result, err := gcpCli.bulkInsertRegional(ctx, req)
 	require.NoError(t, err)
 	require.Same(t, createdOp, result)
+	require.Equal(t, "stable-request-id", req.GetRequestId())
+	require.NotEmpty(t, retryRequestID)
 	mockRegionalClient.AssertExpectations(t)
 }
 
